@@ -5,8 +5,6 @@ import {
   rollAllDice,
   rerollUnkeptDice,
   toggleKeepDie,
-  useDieForResources,
-  useDieForGuest,
   inviteGuest,
   serveGuest,
   buildRoom,
@@ -18,6 +16,14 @@ import {
   canHireStaff,
   canServeGuest,
   canInviteGuest,
+  getActionAreaCounts,
+  getTotalUnusedDice,
+  performAreaAction1,
+  performAreaAction2,
+  performAreaAction3,
+  performAreaAction4,
+  performAreaAction5,
+  performAreaAction6,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -26,15 +32,13 @@ interface GameStore extends GameState {
   rerollDice: () => void
   lockDie: (dieId: number) => void
   confirmDice: () => void
-  draftResource: (dieId: number) => void
-  draftGuest: (dieId: number, guestId: string) => void
+  takeAreaAction: (areaValue: number, subAction?: string) => void
   inviteGuestAction: (guestId: string) => void
   serveWaitingGuest: (guestId: string) => void
   constructRoom: (roomId: string) => void
   hireStaffMember: (staffId: string) => void
   endAction: () => void
   getCurrentPlayer: () => Player
-  getDraftableGuests: (dieId: number) => string[]
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -63,19 +67,46 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   confirmDice: () => {
-    set({ phase: 'dice_draft', logs: [...get().logs, '开始选骰阶段'] })
+    const state = get()
+    const counts = getActionAreaCounts(state.dice)
+    const logText = `开始行动区分配: 区1(${counts[1]}) 区2(${counts[2]}) 区3(${counts[3]}) 区4(${counts[4]}) 区5(${counts[5]}) 区6(${counts[6]})`
+    set({ phase: 'dice_draft', logs: [...state.logs, logText] })
   },
 
-  draftResource: (dieId: number) => {
+  takeAreaAction: (areaValue: number, subAction?: string) => {
     const state = get()
-    const next = useDieForResources(state, dieId)
-    set(next)
-  },
+    let next: GameState
 
-  draftGuest: (dieId: number, guestId: string) => {
-    const state = get()
-    const next = useDieForGuest(state, dieId, guestId)
-    set(next)
+    switch (areaValue) {
+      case 1:
+        next = performAreaAction1(state, parseInt(subAction || '0'))
+        break
+      case 2:
+        next = performAreaAction2(state, parseInt(subAction || '0'))
+        break
+      case 3:
+        next = performAreaAction3(state, subAction || '')
+        break
+      case 4:
+        next = performAreaAction4(state, parseInt(subAction || '0'))
+        break
+      case 5:
+        next = performAreaAction5(state, subAction || '')
+        break
+      case 6: {
+        const parts = (subAction || '').split('|')
+        next = performAreaAction6(state, parseInt(parts[0] || '0'), parts[1] || '')
+        break
+      }
+      default:
+        return
+    }
+
+    if (getTotalUnusedDice(next.dice) === 0) {
+      set({ ...next, phase: 'action', logs: [...next.logs, '所有骰子已用完，进入行动阶段'] })
+    } else {
+      set(next)
+    }
   },
 
   inviteGuestAction: (guestId: string) => {
@@ -153,15 +184,4 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   getCurrentPlayer: () => get().players[get().currentPlayerIndex],
-
-  getDraftableGuests: (dieId: number) => {
-    const state = get()
-    const die = state.dice.find(d => d.id === dieId)
-    if (!die) return []
-    const allowedColors = (() => {
-      const colors: Record<number, string[]> = { 1: ['blue'], 2: ['yellow'], 3: ['red'], 4: ['green'], 5: ['blue'], 6: ['yellow'] }
-      return colors[die.value] ?? []
-    })()
-    return state.availableGuests.filter(g => allowedColors.includes(g.color)).map(g => g.id)
-  },
 }))

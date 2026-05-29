@@ -1,4 +1,4 @@
-import type { Die, GameState, Player, GuestCard, RoomTile, Resources, GuestColor } from '../types/game'
+import type { Die, GameState, Player, GuestCard, RoomTile, Resources } from '../types/game'
 import { createResources } from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
@@ -6,6 +6,7 @@ import { staffCards } from '../data/staff'
 
 const MAX_ROUNDS = 7
 const DICE_COUNT: Record<number, number> = { 2: 10, 3: 12, 4: 14 }
+const MAX_CAFE_SEATS = 3
 
 function shuffle<T>(array: T[]): T[] {
   const a = [...array]
@@ -19,7 +20,7 @@ function shuffle<T>(array: T[]): T[] {
 function createPlayer(id: string, name: string, color: string): Player {
   return {
     id, name, color,
-    resources: createResources({ money: 10 }),
+    resources: createResources({ food: 1, wine: 1, coffee: 1, cake: 1, money: 10 }),
     score: 0,
     emperorTrack: 0,
     guestWaitingArea: [],
@@ -63,10 +64,7 @@ export function initializeGame(playerCount: number): GameState {
 
 export function rollAllDice(count: number): Die[] {
   return Array.from({ length: count }, (_, i) => ({
-    id: i,
-    value: Math.floor(Math.random() * 6) + 1,
-    kept: false,
-    used: false,
+    id: i, value: Math.floor(Math.random() * 6) + 1, kept: false, used: false,
   }))
 }
 
@@ -78,112 +76,239 @@ export function toggleKeepDie(dice: Die[], dieId: number): Die[] {
   return dice.map(d => d.id === dieId ? { ...d, kept: !d.kept } : d)
 }
 
-export const DIE_RESOURCE_MAP: Record<number, { type: keyof Resources; amount: number }> = {
-  1: { type: 'food', amount: 1 },
-  2: { type: 'wine', amount: 1 },
-  3: { type: 'coffee', amount: 1 },
-  4: { type: 'cake', amount: 1 },
-  5: { type: 'money', amount: 2 },
-  6: { type: 'money', amount: 2 },
+export function getActionAreaCounts(dice: Die[]): Record<number, number> {
+  const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  dice.filter(d => d.value > 0 && !d.used).forEach(d => { counts[d.value]++ })
+  return counts
 }
 
-export const DIE_GUEST_COLORS: Record<number, GuestColor[]> = {
-  1: ['blue'],
-  2: ['yellow'],
-  3: ['red'],
-  4: ['green'],
-  5: ['blue'],
-  6: ['yellow'],
+export function getTotalUnusedDice(dice: Die[]): number {
+  return dice.filter(d => d.value > 0 && !d.used).length
 }
+
+export function removeOneDieFromArea(dice: Die[], areaValue: number): Die[] {
+  const idx = dice.findIndex(d => d.value === areaValue && !d.used)
+  if (idx === -1) return dice
+  return dice.map((d, i) => i === idx ? { ...d, used: true } : d)
+}
+
+export function getNextPlayer(state: GameState): number {
+  return (state.currentPlayerIndex + 1) % state.maxPlayers
+}
+
+export function getNextRoller(state: GameState): number {
+  return (state.players.findIndex(p => p.isFirstPlayer) + 1) % state.maxPlayers
+}
+
+// --- Action Area Actions ---
+
+export function performAreaAction1(state: GameState, takeCake: number): GameState {
+  const counts = getActionAreaCounts(state.dice)
+  const n = counts[1]
+  if (n <= 0) return state
+  const cake = Math.min(takeCake, n)
+  const food = n - cake
+  if (cake < 0 || food < 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  const newRes = { ...player.resources, food: player.resources.food + food, cake: player.resources.cake + cake }
+  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: newRes } : p)
+  const dice = removeOneDieFromArea(state.dice, 1)
+  const nextIdx = getNextPlayer(state)
+
+  return {
+    ...state, dice, players, currentPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 执行行动区1: 获得食物×${food} 蛋糕×${cake}`],
+  }
+}
+
+export function performAreaAction2(state: GameState, takeCoffee: number): GameState {
+  const counts = getActionAreaCounts(state.dice)
+  const n = counts[2]
+  if (n <= 0) return state
+  const coffee = Math.min(takeCoffee, n)
+  const wine = n - coffee
+  if (coffee < 0 || wine < 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  const newRes = { ...player.resources, wine: player.resources.wine + wine, coffee: player.resources.coffee + coffee }
+  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: newRes } : p)
+  const dice = removeOneDieFromArea(state.dice, 2)
+  const nextIdx = getNextPlayer(state)
+
+  return {
+    ...state, dice, players, currentPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 执行行动区2: 获得红酒×${wine} 咖啡×${coffee}`],
+  }
+}
+
+export function performAreaAction3(state: GameState, roomId: string): GameState {
+  const counts = getActionAreaCounts(state.dice)
+  if (counts[3] <= 0) return state
+
+  const room = roomTiles.find(r => r.id === roomId)
+  const player = state.players[state.currentPlayerIndex]
+  if (!room || player.builtRooms.some(r => r.id === roomId)) return state
+  const cost = room.cost.money ?? 0
+  if (player.resources.money < cost) return state
+
+  const newRes = { ...player.resources, money: player.resources.money - cost }
+  const players = state.players.map((p, i) =>
+    i === state.currentPlayerIndex ? {
+      ...p,
+      resources: newRes,
+      score: p.score + room.victoryPoints,
+      builtRooms: [...p.builtRooms, { ...room, isBuilt: true }],
+    } : p
+  )
+  const availableRooms = state.availableRooms.filter(r => r.id !== roomId)
+  const dice = removeOneDieFromArea(state.dice, 3)
+  const nextIdx = getNextPlayer(state)
+
+  return {
+    ...state, dice, players, availableRooms, currentPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 执行行动区3: 建造${room.name}`],
+  }
+}
+
+export function performAreaAction4(state: GameState, toEmperor: number): GameState {
+  const counts = getActionAreaCounts(state.dice)
+  const n = counts[4]
+  if (n <= 0) return state
+  const emperor = Math.min(toEmperor, n)
+  const money = n - emperor
+  if (emperor < 0 || money < 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  const newRes = { ...player.resources, money: player.resources.money + money }
+  const players = state.players.map((p, i) =>
+    i === state.currentPlayerIndex ? {
+      ...p, resources: newRes,
+      emperorTrack: p.emperorTrack + emperor,
+    } : p
+  )
+  const dice = removeOneDieFromArea(state.dice, 4)
+  const nextIdx = getNextPlayer(state)
+
+  return {
+    ...state, dice, players, currentPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 执行行动区4: 皇帝+${emperor} 金钱+${money}`],
+  }
+}
+
+export function performAreaAction5(state: GameState, staffId: string): GameState {
+  const counts = getActionAreaCounts(state.dice)
+  const n = counts[5]
+  if (n <= 0) return state
+
+  const staff = staffCards.find(s => s.id === staffId)
+  const player = state.players[state.currentPlayerIndex]
+  if (!staff) return state
+
+  const discount = n
+  const finalCost = Math.max(0, staff.cost - discount)
+  if (player.resources.money < finalCost) return state
+
+  const newRes = { ...player.resources, money: player.resources.money - finalCost }
+  const players = state.players.map((p, i) =>
+    i === state.currentPlayerIndex ? {
+      ...p, resources: newRes,
+      score: p.score + staff.victoryPoints,
+      staffCards: [...p.staffCards, staff],
+    } : p
+  )
+  const availableStaff = state.availableStaff.filter(s => s.id !== staffId)
+  const dice = removeOneDieFromArea(state.dice, 5)
+  const nextIdx = getNextPlayer(state)
+
+  return {
+    ...state, dice, players, availableStaff, currentPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 执行行动区5: 雇佣${staff.name}，花费${finalCost}(折扣${discount})`],
+  }
+}
+
+export function performAreaAction6(state: GameState, targetArea: number, subAction: string): GameState {
+  const counts = getActionAreaCounts(state.dice)
+  const n = counts[6]
+  if (n <= 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  if (player.resources.money < 1) return state
+
+  const newRes = { ...player.resources, money: player.resources.money - 1 }
+  const playerWithPayment = { ...player, resources: newRes }
+
+  let players: Player[]
+  const baseState = { ...state, players: state.players.map((p, i) => i === state.currentPlayerIndex ? playerWithPayment : p) }
+  const dice = removeOneDieFromArea(state.dice, 6)
+  const nextIdx = getNextPlayer(state)
+
+  if (targetArea === 1 || targetArea === 2) {
+    const takeCount = Math.min(parseInt(subAction) || 0, n)
+    const isCoffee = targetArea === 2
+
+    const currentPlayer = baseState.players[state.currentPlayerIndex]
+    if (isCoffee) {
+      const coffee = Math.min(takeCount, n)
+      const wine = n - coffee
+      const updatedRes = { ...currentPlayer.resources, wine: currentPlayer.resources.wine + wine, coffee: currentPlayer.resources.coffee + coffee }
+      players = baseState.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: updatedRes } : p)
+    } else {
+      const cake = Math.min(takeCount, n)
+      const food = n - cake
+      const updatedRes = { ...currentPlayer.resources, food: currentPlayer.resources.food + food, cake: currentPlayer.resources.cake + cake }
+      players = baseState.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: updatedRes } : p)
+    }
+  } else if (targetArea === 3) {
+    const created = performAreaAction3(baseState, subAction)
+    return { ...created, dice, currentPlayerIndex: nextIdx }
+  } else if (targetArea === 4) {
+    const empAdv = parseInt(subAction) || 0
+    const moneyGain = n - empAdv
+    players = baseState.players.map((p, i) =>
+      i === state.currentPlayerIndex
+        ? { ...p, emperorTrack: p.emperorTrack + empAdv, resources: { ...p.resources, money: p.resources.money + moneyGain } }
+        : p
+    )
+  } else {
+    players = baseState.players
+  }
+
+  return {
+    ...state, dice, players, currentPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 执行行动区6(花1元): 模拟行动区${targetArea}`],
+  }
+}
+
+// --- Guest Invite (付费邀请，咖啡厅容量3) ---
 
 export function canInviteGuest(player: Player, guest: GuestCard): boolean {
+  if (player.guestWaitingArea.length >= MAX_CAFE_SEATS) return false
   return player.resources.money >= guest.guestCost
 }
 
 export function inviteGuest(state: GameState, playerId: string, guestId: string): GameState {
   const guestIdx = state.availableGuests.findIndex(g => g.id === guestId)
   if (guestIdx === -1) return state
-
   const guest = state.availableGuests[guestIdx]
+
   const players = state.players.map(p => {
-    if (p.id !== playerId) return p
-    if (!canInviteGuest(p, guest)) return p
+    if (p.id !== playerId || !canInviteGuest(p, guest)) return p
     return {
       ...p,
       resources: { ...p.resources, money: p.resources.money - guest.guestCost },
       guestWaitingArea: [...p.guestWaitingArea, guest],
     }
   })
-
   const availableGuests = state.availableGuests.filter((_, i) => i !== guestIdx)
 
   return {
-    ...state,
-    players,
-    availableGuests,
-    logs: [...state.logs, `${state.players.find(p => p.id === playerId)?.name} 花费${guest.guestCost}元邀请${guest.name}`],
+    ...state, players, availableGuests,
+    logs: [...state.logs, `${state.players.find(p => p.id === playerId)?.name} 花费${guest.guestCost}元邀请${guest.name}(${players.find(p => p.id === playerId)?.guestWaitingArea.length}/${MAX_CAFE_SEATS})`],
   }
 }
 
-export function useDieForResources(state: GameState, dieId: number): GameState {
-  const die = state.dice.find(d => d.id === dieId)
-  if (!die || die.used || !die.value) return state
-
-  const player = state.players[state.currentPlayerIndex]
-  const res = DIE_RESOURCE_MAP[die.value]
-  const newRes = { ...player.resources }
-  newRes[res.type] += res.amount
-
-  const players = state.players.map((p, i) =>
-    i === state.currentPlayerIndex ? { ...p, resources: newRes } : p
-  )
-  const dice = state.dice.map(d => d.id === dieId ? { ...d, used: true } : d)
-  const nextIdx = getNextPlayer(state)
-  const allUsed = dice.every(d => d.used)
-
-  return {
-    ...state,
-    dice,
-    players,
-    currentPlayerIndex: allUsed ? state.currentPlayerIndex : nextIdx,
-    phase: allUsed ? 'action' : 'dice_draft',
-    logs: [...state.logs, `${player.name} 使用骰子[${die.value}]获得${res.type}×${res.amount}`],
-  }
-}
-
-export function useDieForGuest(state: GameState, dieId: number, guestId: string): GameState {
-  const die = state.dice.find(d => d.id === dieId)
-  if (!die || die.used || !die.value) return state
-
-  const guestIdx = state.availableGuests.findIndex(g => g.id === guestId)
-  if (guestIdx === -1) return state
-
-  const guest = state.availableGuests[guestIdx]
-  const allowedColors = DIE_GUEST_COLORS[die.value]
-  if (!allowedColors.includes(guest.color)) return state
-
-  const player = state.players[state.currentPlayerIndex]
-  const players = state.players.map((p, i) =>
-    i === state.currentPlayerIndex
-      ? { ...p, guestWaitingArea: [...p.guestWaitingArea, guest] }
-      : p
-  )
-
-  const dice = state.dice.map(d => d.id === dieId ? { ...d, used: true } : d)
-  const availableGuests = state.availableGuests.filter((_, i) => i !== guestIdx)
-  const nextIdx = getNextPlayer(state)
-  const allUsed = dice.every(d => d.used)
-
-  return {
-    ...state,
-    dice,
-    players,
-    availableGuests,
-    currentPlayerIndex: allUsed ? state.currentPlayerIndex : nextIdx,
-    phase: allUsed ? 'action' : 'dice_draft',
-    logs: [...state.logs, `${player.name} 使用骰子[${die.value}]邀请${guest.name}`],
-  }
-}
+// --- Serve Guest ---
 
 export function canServeGuest(player: Player, guest: GuestCard): boolean {
   const hasRoom = player.builtRooms.some(r => r.capacity > 0)
@@ -210,14 +335,14 @@ export function serveGuest(player: Player, guestId: string): Player {
     : player.builtRooms
 
   return {
-    ...player,
-    resources: newRes,
-    score: newScore,
+    ...player, resources: newRes, score: newScore,
     guestWaitingArea: player.guestWaitingArea.filter((_, i) => i !== idx),
     guestServedArea: [...player.guestServedArea, guest],
     builtRooms,
   }
 }
+
+// --- Build Room ---
 
 export function canBuildRoom(player: Player, room: RoomTile): boolean {
   return Object.entries(room.cost).every(([type, amount]) =>
@@ -228,19 +353,18 @@ export function canBuildRoom(player: Player, room: RoomTile): boolean {
 export function buildRoom(player: Player, roomId: string): Player {
   const room = roomTiles.find(r => r.id === roomId)
   if (!room || player.builtRooms.some(r => r.id === roomId)) return player
-
   const newRes = { ...player.resources }
   Object.entries(room.cost).forEach(([type, amount]) => {
     newRes[type as keyof Resources] -= amount ?? 0
   })
-
   return {
-    ...player,
-    resources: newRes,
+    ...player, resources: newRes,
     score: player.score + room.victoryPoints,
     builtRooms: [...player.builtRooms, { ...room, isBuilt: true }],
   }
 }
+
+// --- Hire Staff ---
 
 export function canHireStaff(player: Player, staff: { cost: number }): boolean {
   return player.resources.money >= staff.cost
@@ -257,32 +381,41 @@ export function hireStaff(player: Player, staffId: string): Player {
   }
 }
 
-export const EMPEROR_SCORE_THRESHOLDS: Record<number, number> = {
-  0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 12, 12: 14, 13: 16,
+// --- Emperor Scoring ---
+
+const EMPEROR_SCORE_MAP: Record<number, number> = {
+  0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3, 6: 4, 7: 5, 8: 7, 9: 9, 10: 11, 11: 13, 12: 15, 13: 17,
 }
 
-export function calculateEmperorScore(position: number): number {
-  return EMPEROR_SCORE_THRESHOLDS[Math.min(position, 13)] ?? 0
+function calculateEmperorScore(position: number): number {
+  return EMPEROR_SCORE_MAP[Math.min(position, 13)] ?? 0
 }
 
-export function calculateRoundEndEmperorScore(state: GameState): GameState {
-  const players = state.players.map(p => {
-    const score = calculateEmperorScore(p.emperorTrack)
-    return { ...p, score: p.score + score }
-  })
+function calculateRoundEndEmperorScore(state: GameState): GameState {
+  const players = state.players.map(p => ({
+    ...p, score: p.score + calculateEmperorScore(p.emperorTrack),
+  }))
   return { ...state, players, logs: [...state.logs, `👑 皇帝计分！`] }
 }
 
+// --- End Game ---
+
 export function checkEndGame(state: GameState): GameState {
   const round = state.roundNumber
-  if (round <= 0 || round > MAX_ROUNDS) return state
+  if (round <= 0) return state
 
   if (round >= MAX_ROUNDS) {
-    const winner = [...state.players].sort((a, b) => b.score - a.score)[0]
+    let sorted = [...state.players].sort((a, b) => {
+      const scoreDiff = b.score - a.score
+      if (scoreDiff !== 0) return scoreDiff
+
+      const aRemaining = a.resources.food + a.resources.wine + a.resources.coffee + a.resources.cake + a.resources.money
+      const bRemaining = b.resources.food + b.resources.wine + b.resources.coffee + b.resources.cake + b.resources.money
+      return bRemaining - aRemaining
+    })
+    const winner = sorted[0]
     return {
-      ...state,
-      phase: 'game_end',
-      winner,
+      ...state, phase: 'game_end', winner,
       logs: [...state.logs, `游戏结束！${winner.name} 以 ${winner.score} 分获胜！`],
     }
   }
@@ -290,23 +423,14 @@ export function checkEndGame(state: GameState): GameState {
   return state
 }
 
-export function getNextPlayer(state: GameState): number {
-  return (state.currentPlayerIndex + 1) % state.maxPlayers
-}
-
-export function getNextRoller(state: GameState): number {
-  return (state.players.findIndex(p => p.isFirstPlayer) + 1) % state.maxPlayers
-}
+// --- Round Management ---
 
 export function startNextRound(state: GameState): GameState {
   const nextFirst = getNextRoller(state)
   const players = state.players.map((p, i) => ({ ...p, isFirstPlayer: i === nextFirst }))
 
   let newState: GameState = {
-    ...state,
-    phase: 'dice_roll',
-    currentPlayerIndex: nextFirst,
-    players,
+    ...state, phase: 'dice_roll', currentPlayerIndex: nextFirst, players,
     dice: Array.from({ length: state.dice.length }, (_, i) => ({ id: i, value: 0, kept: false, used: false })),
     roundNumber: state.roundNumber + 1,
     logs: [...state.logs, `--- 第${state.roundNumber + 1}轮 ---`],

@@ -60,7 +60,7 @@ function PhaseIndicator() {
 
   const labels: Record<string, { text: string; color: string }> = {
     dice_roll: { text: `🎲 掷骰阶段 - ${player.name}请掷骰`, color: '#3498db' },
-    dice_draft: { text: `🎯 选骰阶段 - ${player.name}请选择`, color: '#f1c40f' },
+    dice_draft: { text: `🎯 行动区选择 - ${player.name}请选择一个行动区`, color: '#f1c40f' },
     action: { text: `⚡ 行动阶段 - ${player.name}请行动`, color: '#2ecc71' },
     game_end: { text: '🏆 游戏结束', color: '#e74c3c' },
   }
