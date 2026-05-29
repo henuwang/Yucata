@@ -1,8 +1,8 @@
-export type GuestColor = 'blue' | 'grey' | 'yellow' | 'red' | 'green'
+export type GuestColor = 'blue' | 'yellow' | 'red' | 'green'
 
 export type ResourceType = 'food' | 'wine' | 'coffee' | 'cake' | 'money'
 
-export type RoomColor = 'blue' | 'grey' | 'yellow' | 'red' | 'green'
+export type RoomColor = 'blue' | 'yellow' | 'red'
 
 export type StaffAbility = 'extra_resource' | 'discount' | 'extra_vp' | 'dice_reroll' | 'guest_discount'
 
@@ -40,6 +40,7 @@ export interface GuestCard {
   victoryPoints: number
   bonusResource?: ResourceType
   bonusAmount?: number
+  guestCost: number
 }
 
 export interface RoomTile {
@@ -67,6 +68,7 @@ export interface Player {
   color: string
   resources: Resources
   score: number
+  emperorTrack: number
   guestWaitingArea: GuestCard[]
   guestServedArea: GuestCard[]
   builtRooms: RoomTile[]

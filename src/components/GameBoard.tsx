@@ -20,17 +20,8 @@ export function GameBoard() {
       padding: 16,
       fontFamily: 'system-ui, sans-serif',
     }}>
-      <header style={{
-        textAlign: 'center',
-        marginBottom: 16,
-      }}>
-        <h1 style={{
-          color: '#e0e0e0',
-          fontSize: 22,
-          margin: 0,
-          fontWeight: 300,
-          letterSpacing: 6,
-        }}>
+      <header style={{ textAlign: 'center', marginBottom: 16 }}>
+        <h1 style={{ color: '#e0e0e0', fontSize: 22, margin: 0, fontWeight: 300, letterSpacing: 6 }}>
           奥 地 利 大 饭 店
         </h1>
         <p style={{ color: '#555', margin: '2px 0 0 0', fontSize: 11, letterSpacing: 2 }}>
@@ -85,12 +76,8 @@ function PhaseIndicator() {
       justifyContent: 'space-between',
       alignItems: 'center',
     }}>
-      <span style={{ color: info.color, fontWeight: 600, fontSize: 14 }}>
-        {info.text}
-      </span>
-      <span style={{ color: '#666', fontSize: 12 }}>
-        第 {Math.ceil(round)} 轮
-      </span>
+      <span style={{ color: info.color, fontWeight: 600, fontSize: 14 }}>{info.text}</span>
+      <span style={{ color: '#666', fontSize: 12 }}>第 {Math.ceil(round)}/7 轮</span>
     </div>
   )
 }
@@ -104,20 +91,11 @@ function GuestLobby() {
     groups[g.color].push(g)
   })
 
-  const colorInfo: Record<string, { bg: string; border: string; label: string }> = {
-    blue: { bg: '#1a2744', border: '#4a7db5', label: '贵族' },
-    grey: { bg: '#2a2a2a', border: '#888', label: '教士' },
-    yellow: { bg: '#3a3520', border: '#d4a843', label: '政客' },
-    red: { bg: '#3a1a1a', border: '#c0392b', label: '艺术家' },
-    green: { bg: '#1a3a1a', border: '#27ae60', label: '市民' },
-  }
-
-  const dieHints: Record<string, string> = {
-    blue: '骰子1-2',
-    grey: '骰子1-2',
-    yellow: '骰子3-4',
-    red: '骰子3-4',
-    green: '骰子5-6',
+  const colorInfo: Record<string, { bg: string; border: string; label: string; die: string }> = {
+    blue: { bg: '#1a2744', border: '#4a7db5', label: '贵族', die: '骰子1/5' },
+    yellow: { bg: '#3a3520', border: '#d4a843', label: '艺术家/政客', die: '骰子2/6' },
+    red: { bg: '#3a1a1a', border: '#c0392b', label: '市民', die: '骰子3' },
+    green: { bg: '#1a3a1a', border: '#27ae60', label: '旅客', die: '骰子4' },
   }
 
   return (
@@ -132,12 +110,12 @@ function GuestLobby() {
       </h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {Object.entries(groups).map(([color, cards]) => {
-          const c = colorInfo[color] ?? colorInfo.grey
+          const c = colorInfo[color] ?? { bg: '#2a2a2a', border: '#888', label: color, die: '' }
           return (
             <div key={color}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: c.border }} />
-                <span style={{ fontSize: 11, color: '#888' }}>{c.label} ({dieHints[color]})</span>
+                <span style={{ fontSize: 11, color: '#888' }}>{c.label} ({c.die})</span>
               </div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {cards.map(g => (
@@ -151,6 +129,7 @@ function GuestLobby() {
                   }}>
                     <div style={{ color: '#e0e0e0', fontSize: 11, fontWeight: 600 }}>{g.name}</div>
                     <div style={{ color: '#f1c40f', fontSize: 10 }}>+{g.victoryPoints}</div>
+                    <div style={{ fontSize: 9, color: '#f39c12' }}>💰{g.guestCost}</div>
                     <div style={{ display: 'flex', gap: 2, marginTop: 1 }}>
                       {g.requirements.map((r, i) => (
                         <span key={i} style={{ fontSize: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 2, padding: '0 3px', color: '#888' }}>
@@ -182,6 +161,11 @@ function StaffSummary() {
         👔 员工市场
       </h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {staff.length === 0 && (
+          <div style={{ color: '#666', fontSize: 12, textAlign: 'center', padding: 12 }}>
+            无可用员工
+          </div>
+        )}
         {staff.map(s => (
           <div key={s.id} style={{
             background: '#2a2a4a',

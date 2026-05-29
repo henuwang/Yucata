@@ -1,28 +1,30 @@
 import type { RoomTile } from '../types/game'
 
 export const roomTiles: RoomTile[] = [
-  // Blue rooms
-  { id: 'rb1', name: '豪华套房', color: 'blue', cost: { money: 6 }, victoryPoints: 5, capacity: 2, isBuilt: false },
-  { id: 'rb2', name: '贵族客房', color: 'blue', cost: { money: 5, food: 2 }, victoryPoints: 5, capacity: 2, isBuilt: false },
-  { id: 'rb3', name: '皇家套房', color: 'blue', cost: { money: 8 }, victoryPoints: 7, capacity: 3, isBuilt: false },
+  // Blue rooms - 7 rooms
+  { id: 'rb1', name: '蓝室1', color: 'blue', cost: { money: 4 }, victoryPoints: 2, capacity: 1, isBuilt: false },
+  { id: 'rb2', name: '蓝室2', color: 'blue', cost: { money: 5 }, victoryPoints: 3, capacity: 1, isBuilt: false },
+  { id: 'rb3', name: '蓝室3', color: 'blue', cost: { money: 6 }, victoryPoints: 4, capacity: 1, isBuilt: false },
+  { id: 'rb4', name: '蓝室4', color: 'blue', cost: { money: 7 }, victoryPoints: 5, capacity: 1, isBuilt: false },
+  { id: 'rb5', name: '蓝室5', color: 'blue', cost: { money: 8 }, victoryPoints: 6, capacity: 1, isBuilt: false },
+  { id: 'rb6', name: '蓝室6', color: 'blue', cost: { money: 9 }, victoryPoints: 7, capacity: 1, isBuilt: false },
+  { id: 'rb7', name: '蓝室7', color: 'blue', cost: { money: 10 }, victoryPoints: 8, capacity: 1, isBuilt: false },
 
-  // Grey rooms
-  { id: 'rg1', name: '标准客房', color: 'grey', cost: { money: 3 }, victoryPoints: 3, capacity: 1, isBuilt: false },
-  { id: 'rg2', name: '舒适客房', color: 'grey', cost: { money: 4 }, victoryPoints: 3, capacity: 1, isBuilt: false },
-  { id: 'rg3', name: '高级客房', color: 'grey', cost: { money: 5 }, victoryPoints: 4, capacity: 2, isBuilt: false },
+  // Yellow rooms - 7 rooms
+  { id: 'ry1', name: '黄室1', color: 'yellow', cost: { money: 3 }, victoryPoints: 2, capacity: 1, isBuilt: false },
+  { id: 'ry2', name: '黄室2', color: 'yellow', cost: { money: 4 }, victoryPoints: 3, capacity: 1, isBuilt: false },
+  { id: 'ry3', name: '黄室3', color: 'yellow', cost: { money: 5 }, victoryPoints: 4, capacity: 1, isBuilt: false },
+  { id: 'ry4', name: '黄室4', color: 'yellow', cost: { money: 6 }, victoryPoints: 5, capacity: 1, isBuilt: false },
+  { id: 'ry5', name: '黄室5', color: 'yellow', cost: { money: 7 }, victoryPoints: 6, capacity: 1, isBuilt: false },
+  { id: 'ry6', name: '黄室6', color: 'yellow', cost: { money: 8 }, victoryPoints: 7, capacity: 1, isBuilt: false },
+  { id: 'ry7', name: '黄室7', color: 'yellow', cost: { money: 9 }, victoryPoints: 8, capacity: 1, isBuilt: false },
 
-  // Yellow rooms
-  { id: 'ry1', name: '行政套房', color: 'yellow', cost: { money: 4, wine: 1 }, victoryPoints: 4, capacity: 1, isBuilt: false },
-  { id: 'ry2', name: '商务客房', color: 'yellow', cost: { money: 3, coffee: 1 }, victoryPoints: 3, capacity: 1, isBuilt: false },
-  { id: 'ry3', name: '外交套房', color: 'yellow', cost: { money: 5, wine: 2 }, victoryPoints: 5, capacity: 2, isBuilt: false },
-
-  // Red rooms
-  { id: 'rr1', name: '艺术套房', color: 'red', cost: { money: 3, cake: 1 }, victoryPoints: 3, capacity: 1, isBuilt: false },
-  { id: 'rr2', name: '音乐客房', color: 'red', cost: { money: 2, food: 1 }, victoryPoints: 2, capacity: 1, isBuilt: false },
-  { id: 'rr3', name: '创作套房', color: 'red', cost: { money: 4, coffee: 2 }, victoryPoints: 4, capacity: 2, isBuilt: false },
-
-  // Green rooms
-  { id: 're1', name: '经济客房', color: 'green', cost: { money: 2 }, victoryPoints: 2, capacity: 1, isBuilt: false },
-  { id: 're2', name: '家庭套房', color: 'green', cost: { money: 3, food: 1 }, victoryPoints: 3, capacity: 2, isBuilt: false },
-  { id: 're3', name: '阳台客房', color: 'green', cost: { money: 4 }, victoryPoints: 3, capacity: 1, isBuilt: false },
+  // Red rooms - 7 rooms
+  { id: 'rr1', name: '红室1', color: 'red', cost: { money: 2 }, victoryPoints: 1, capacity: 1, isBuilt: false },
+  { id: 'rr2', name: '红室2', color: 'red', cost: { money: 3 }, victoryPoints: 2, capacity: 1, isBuilt: false },
+  { id: 'rr3', name: '红室3', color: 'red', cost: { money: 4 }, victoryPoints: 3, capacity: 1, isBuilt: false },
+  { id: 'rr4', name: '红室4', color: 'red', cost: { money: 5 }, victoryPoints: 4, capacity: 1, isBuilt: false },
+  { id: 'rr5', name: '红室5', color: 'red', cost: { money: 6 }, victoryPoints: 5, capacity: 1, isBuilt: false },
+  { id: 'rr6', name: '红室6', color: 'red', cost: { money: 7 }, victoryPoints: 6, capacity: 1, isBuilt: false },
+  { id: 'rr7', name: '红室7', color: 'red', cost: { money: 8 }, victoryPoints: 7, capacity: 1, isBuilt: false },
 ]

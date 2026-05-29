@@ -7,6 +7,7 @@ import {
   toggleKeepDie,
   useDieForResources,
   useDieForGuest,
+  inviteGuest,
   serveGuest,
   buildRoom,
   hireStaff,
@@ -16,7 +17,7 @@ import {
   canBuildRoom,
   canHireStaff,
   canServeGuest,
-  getAvailableGuestColors,
+  canInviteGuest,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -27,6 +28,7 @@ interface GameStore extends GameState {
   confirmDice: () => void
   draftResource: (dieId: number) => void
   draftGuest: (dieId: number, guestId: string) => void
+  inviteGuestAction: (guestId: string) => void
   serveWaitingGuest: (guestId: string) => void
   constructRoom: (roomId: string) => void
   hireStaffMember: (staffId: string) => void
@@ -44,8 +46,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   rollDice: () => {
-    const dice = rollAllDice()
-    set({ dice, logs: [...get().logs, `${get().players[get().currentPlayerIndex].name} 掷出了骰子`] })
+    const state = get()
+    const dice = rollAllDice(state.dice.length)
+    set({ dice, logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 掷出了骰子`] })
   },
 
   rerollDice: () => {
@@ -72,6 +75,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   draftGuest: (dieId: number, guestId: string) => {
     const state = get()
     const next = useDieForGuest(state, dieId, guestId)
+    set(next)
+  },
+
+  inviteGuestAction: (guestId: string) => {
+    const state = get()
+    const player = state.players[state.currentPlayerIndex]
+    const guest = state.availableGuests.find(g => g.id === guestId)
+    if (!guest || !canInviteGuest(player, guest)) return
+    const next = inviteGuest(state, player.id, guestId)
     set(next)
   },
 
@@ -122,6 +134,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get()
     const nextIdx = getNextPlayer(state)
     const isRoundEnd = nextIdx === state.players.findIndex(p => p.isFirstPlayer)
+
+    let checked = checkEndGame(state)
+    if (checked.phase === 'game_end') {
+      set(checked)
+      return
+    }
+
     if (isRoundEnd) {
       set(startNextRound(state))
     } else {
@@ -139,9 +158,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get()
     const die = state.dice.find(d => d.id === dieId)
     if (!die) return []
-    const allowedColors = getAvailableGuestColors(die.value)
-    return state.availableGuests
-      .filter(g => allowedColors.includes(g.color))
-      .map(g => g.id)
+    const allowedColors = (() => {
+      const colors: Record<number, string[]> = { 1: ['blue'], 2: ['yellow'], 3: ['red'], 4: ['green'], 5: ['blue'], 6: ['yellow'] }
+      return colors[die.value] ?? []
+    })()
+    return state.availableGuests.filter(g => allowedColors.includes(g.color)).map(g => g.id)
   },
 }))
