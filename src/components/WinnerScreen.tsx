@@ -1,58 +1,103 @@
 import { useGameStore } from '../store/gameStore'
 
 export function WinnerScreen() {
-  const winner = useGameStore(s => s.winner)
+  const players = useGameStore(s => s.players)
   const startGame = useGameStore(s => s.startGame)
+  const roundNumber = useGameStore(s => s.roundNumber)
+
+  const sorted = [...players].sort((a, b) => b.score - a.score)
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#0f0f1a',
+      background: 'linear-gradient(135deg, #0f0f1a, #1a1a2e)',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
       color: '#e0e0e0',
       fontFamily: 'system-ui, sans-serif',
+      padding: 20,
     }}>
-      <h1 style={{ fontSize: 48, marginBottom: 8, fontWeight: 300, letterSpacing: 2 }}>
-        游戏结束！
-      </h1>
-      {winner && (
+      <div style={{
+        background: 'linear-gradient(135deg, #1a2744, #2a1a44)',
+        borderRadius: 20,
+        padding: '40px 56px',
+        border: '2px solid #f1c40f',
+        textAlign: 'center',
+        maxWidth: 500,
+        width: '100%',
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 8 }}>🏆</div>
+        <h1 style={{ fontSize: 32, margin: '0 0 4px 0', fontWeight: 300, letterSpacing: 4, color: '#f1c40f' }}>
+          游戏结束
+        </h1>
+        <p style={{ color: '#888', fontSize: 12, margin: '0 0 24px 0' }}>
+          经过 {roundNumber} 轮的角逐
+        </p>
+
         <div style={{
-          background: 'linear-gradient(135deg, #1a2744, #2a1a44)',
-          borderRadius: 16,
-          padding: '32px 48px',
-          border: '2px solid #f1c40f',
-          textAlign: 'center',
+          background: 'rgba(0,0,0,0.3)',
+          borderRadius: 12,
+          padding: 20,
           marginBottom: 24,
         }}>
-          <div style={{ fontSize: 64, marginBottom: 8 }}>👑</div>
-          <h2 style={{ fontSize: 32, margin: '0 0 8px 0', color: '#f1c40f' }}>
-            {winner.name}
-          </h2>
-          <p style={{ fontSize: 24, color: '#e0e0e0', margin: 0 }}>
-            最终得分: {winner.score}分
-          </p>
-          <div style={{ marginTop: 16, color: '#888', fontSize: 14 }}>
-            招待客人: {winner.guestServedArea.length} | 建造房间: {winner.builtRooms.length} | 雇佣员工: {winner.staffCards.length}
-          </div>
+          {sorted.map((p, i) => (
+            <div key={p.id} style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 0',
+              borderBottom: i < sorted.length - 1 ? '1px solid #2a2a4a' : 'none',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  background: i === 0 ? '#f1c40f' : '#2a2a4a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: i === 0 ? '#000' : '#888',
+                }}>
+                  {i + 1}
+                </span>
+                <span style={{ color: '#e0e0e0', fontWeight: i === 0 ? 700 : 400 }}>
+                  {p.name}
+                  {p.isFirstPlayer && ' 👑'}
+                </span>
+              </div>
+              <span style={{
+                color: i === 0 ? '#f1c40f' : '#888',
+                fontWeight: 700,
+                fontSize: i === 0 ? 20 : 16,
+              }}>
+                {p.score}分
+              </span>
+            </div>
+          ))}
         </div>
-      )}
-      <button
-        onClick={() => startGame(2)}
-        style={{
-          padding: '12px 32px',
-          borderRadius: 8,
-          border: '1px solid #4a4a6a',
-          background: '#2a2a4a',
-          color: '#e0e0e0',
-          cursor: 'pointer',
-          fontSize: 16,
-        }}
-      >
-        再来一局
-      </button>
+
+        <button
+          onClick={() => startGame(2)}
+          style={{
+            padding: '12px 32px',
+            borderRadius: 8,
+            border: '1px solid #4a7db5',
+            background: '#1a2744',
+            color: '#e0e0e0',
+            cursor: 'pointer',
+            fontSize: 15,
+            fontWeight: 600,
+            transition: 'all 0.2s',
+          }}
+        >
+          🔄 再来一局
+        </button>
+      </div>
     </div>
   )
 }
