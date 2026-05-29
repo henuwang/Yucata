@@ -37,6 +37,7 @@ interface GameStore extends GameState {
 
 export const useGameStore = create<GameStore>((set, get) => ({
   ...initializeGame(2),
+  gameStarted: false,
 
   startGame: (playerCount: number) => {
     set(initializeGame(playerCount))

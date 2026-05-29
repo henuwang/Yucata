@@ -86,4 +86,5 @@ export interface GameState {
   maxPlayers: number
   winner: Player | null
   logs: string[]
+  gameStarted: boolean
 }

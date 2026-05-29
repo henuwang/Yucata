@@ -52,6 +52,7 @@ export function initializeGame(playerCount: number): GameState {
     maxPlayers: playerCount,
     winner: null,
     logs: ['游戏开始！'],
+    gameStarted: true,
   }
 }
 
