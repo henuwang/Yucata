@@ -30,6 +30,7 @@ import {
   skipSetupRoom,
   drawStaffCardsForPlayer,
   pickStaffCardForDraft,
+  autoPlaceSetupRoom,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -38,6 +39,7 @@ interface GameStore extends GameState {
   pickStaffCard: (cardId: string) => void
   pickSetupGuest: (guestId: string) => void
   placeSetupRoom: (roomId: string, slotRow: number, slotCol: number) => void
+  autoPlaceRoom: (slotRow: number, slotCol: number) => void
   skipSetupRoom: () => void
   rollDice: () => void
   rerollDice: () => void
@@ -77,6 +79,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   placeSetupRoom: (roomId: string, slotRow: number, slotCol: number) => {
     const next = placeSetupRoom(get(), roomId, slotRow, slotCol)
+    set({ ...next })
+  },
+
+  autoPlaceRoom: (slotRow: number, slotCol: number) => {
+    const next = autoPlaceSetupRoom(get(), slotRow, slotCol)
     set({ ...next })
   },
 

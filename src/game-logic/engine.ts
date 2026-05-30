@@ -70,7 +70,7 @@ export function initializeGame(playerCount: number): GameState {
     players,
     dice: Array.from({ length: diceCount }, (_, i) => ({ id: i, value: 0, kept: false, used: false })),
     availableGuests: sg.slice(0, 5),
-    availableRooms: sr.slice(0, 6),
+    availableRooms: sr,
     availableStaff: ss,
     emperorTiles: selectedEmperorTiles,
     roundNumber: 1,
@@ -280,6 +280,22 @@ export function placeSetupRoom(state: GameState, roomId: string, slotRow: number
     setupPlayerIndex: nextPlayer,
     logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, `轮到 ${state.players[nextPlayer].name} 准备房间`],
   }
+}
+
+export function autoPlaceSetupRoom(state: GameState, slotRow: number, slotCol: number): GameState {
+  if (!canPlaceSetupRoom(state, slotRow, slotCol)) return state
+
+  const player = state.players[state.setupPlayerIndex]
+  const slot = player.roomSlots.find(s => s.row === slotRow && s.col === slotCol)
+  if (!slot || slot.roomId) return state
+
+  const matchingRoom = state.availableRooms.find(r => r.color === slot.color)
+  if (!matchingRoom) return state
+
+  const cost = slot.cost
+  if (player.resources.money < cost) return state
+
+  return placeSetupRoom(state, matchingRoom.id, slotRow, slotCol)
 }
 
 export function skipSetupRoom(state: GameState): GameState {

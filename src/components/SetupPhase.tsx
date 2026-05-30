@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
+import { HotelBoardGrid } from './HotelBoardGrid'
 
 export function SetupStaffPhase() {
   const phase = useGameStore(s => s.phase)
@@ -235,14 +235,11 @@ export function SetupRoomPhase() {
   const phase = useGameStore(s => s.phase)
   const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)
   const players = useGameStore(s => s.players)
-  const availableRooms = useGameStore(s => s.availableRooms)
   const logs = useGameStore(s => s.logs)
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
 
   if (phase !== 'setup_room') return null
 
   const currentPlayer = players[setupPlayerIndex]
-  const selectedRoom = availableRooms.find(r => r.id === selectedRoomId)
 
   return (
     <div style={{
@@ -251,15 +248,14 @@ export function SetupRoomPhase() {
       background: 'rgba(0,0,0,0.85)',
     }}>
       <div style={{
-        background: '#1a1a2e', borderRadius: 16, padding: 28, maxWidth: 820, width: '95%',
-        maxHeight: '90vh', overflowY: 'auto',
+        background: '#1a1a2e', borderRadius: 16, padding: 24, maxWidth: 560, width: '95%',
         border: '1px solid #4a4a6a',
       }}>
-        <h2 style={{ color: '#f1c40f', margin: '0 0 4px 0', fontSize: 18 }}>
+        <h2 style={{ color: '#f1c40f', margin: '0 0 4px 0', fontSize: 17 }}>
           初始设置 - 准备客房
         </h2>
-        <p style={{ color: '#888', margin: '0 0 12px 0', fontSize: 12 }}>
-          从最后玩家开始逆时针，从版图左下角放置客房（最多3个），支付版图位置费用
+        <p style={{ color: '#888', margin: '0 0 10px 0', fontSize: 12 }}>
+          从版图左下角开始放置客房（最多3个），点击空位自动匹配同色房间
         </p>
 
         <div style={{
@@ -297,60 +293,9 @@ export function SetupRoomPhase() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 16 }}>
-          <div style={{ flex: '0 0 200px' }}>
-            <h3 style={{ color: '#e0e0e0', fontSize: 13, margin: '0 0 8px 0' }}>
-              可选客房
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {availableRooms.map(room => (
-                <button
-                  key={room.id}
-                  onClick={() => setSelectedRoomId(room.id === selectedRoomId ? null : room.id)}
-                  style={{
-                    background: room.id === selectedRoomId ? '#1a2744' : '#16213e',
-                    border: `1px solid ${room.id === selectedRoomId ? '#4a7db5' : '#2a2a4a'}`,
-                    borderRadius: 6, padding: '6px 8px', cursor: 'pointer',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = roomColorBorder(room.color) }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = room.id === selectedRoomId ? '#4a7db5' : '#2a2a4a' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{
-                      width: 10, height: 10, borderRadius: 3,
-                      background: roomColorBorder(room.color),
-                    }} />
-                    <span style={{ color: '#e0e0e0', fontSize: 11, fontWeight: 500 }}>{room.name}</span>
-                  </div>
-                  <span style={{ color: '#f1c40f', fontSize: 10 }}>
-                    {room.cost.money}元
-                  </span>
-                </button>
-              ))}
-            </div>
-            {selectedRoom && (
-              <div style={{
-                background: '#1a2744', border: '1px solid #4a7db5', borderRadius: 6,
-                padding: 8, marginTop: 8, fontSize: 11,
-              }}>
-                <div style={{ color: '#e0e0e0' }}>已选: {selectedRoom.name}</div>
-                <div style={{ color: '#888' }}>VP: {selectedRoom.victoryPoints}</div>
-                <div style={{ color: '#888' }}>容量: {selectedRoom.capacity}人</div>
-              </div>
-            )}
-          </div>
+        <SetupHotelBoardGrid />
 
-          <div style={{ flex: 1 }}>
-            <h3 style={{ color: '#e0e0e0', fontSize: 13, margin: '0 0 8px 0', textAlign: 'center' }}>
-              酒店版图
-            </h3>
-            <HotelBoardGrid selectedRoomId={selectedRoomId} onRoomPlaced={() => setSelectedRoomId(null)} />
-          </div>
-        </div>
-
-        <div style={{ marginTop: 10, maxHeight: 50, overflowY: 'auto', fontSize: 10, color: '#666' }}>
+        <div style={{ marginTop: 8, maxHeight: 40, overflowY: 'auto', fontSize: 10, color: '#666' }}>
           {logs.slice(-3).join('\n')}
         </div>
       </div>
@@ -358,145 +303,34 @@ export function SetupRoomPhase() {
   )
 }
 
-function HotelBoardGrid({ selectedRoomId, onRoomPlaced }: { selectedRoomId: string | null; onRoomPlaced: () => void }) {
-  const players = useGameStore(s => s.players)
-  const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)
-  const availableRooms = useGameStore(s => s.availableRooms)
-  const player = players[setupPlayerIndex]
-
-  const placeSetupRoom = useGameStore(s => s.placeSetupRoom)
-
-  const renderSlot = (slot: any) => {
-    const isOccupied = slot.roomId !== null
-    const canPlace = !isOccupied && selectedRoomId &&
-      availableRooms.some(r => r.id === selectedRoomId && r.color === slot.color) &&
-      player.resources.money >= slot.cost
-
-    const isAdjacent = player.roomSlots.some(s =>
-      s.roomId &&
-      Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1
-    )
-
-    const isValidStart = player.setupRoomCount === 0 && slot.row === 0 && slot.col === 0
-
-    const occupiedRoom = isOccupied ? player.builtRooms.find(r => r.id === slot.roomId) : null
-
-    const isHighlighted = canPlace && (isValidStart || isAdjacent)
-
-    return (
-      <button
-        key={`${slot.row}-${slot.col}`}
-        onClick={() => {
-          if (canPlace && (isValidStart || isAdjacent || player.setupRoomCount === 0)) {
-            placeSetupRoom(selectedRoomId!, slot.row, slot.col)
-            onRoomPlaced()
-          }
-        }}
-        style={{
-          width: 70, height: 52,
-          background: isOccupied
-            ? (occupiedRoom ? slotColor(slot.color) : '#2a2a4a')
-            : (isHighlighted ? '#1a3a2a' : '#1a1a2e'),
-          border: `2px solid ${
-            isOccupied ? roomColorBorder(slot.color)
-            : isHighlighted ? '#2ecc71'
-            : '#2a2a4a'
-          }`,
-          borderRadius: 6, cursor: isHighlighted ? 'pointer' : 'default',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          fontSize: 10, color: isOccupied ? '#fff' : '#666',
-          opacity: (!isOccupied && !isHighlighted && selectedRoomId) ? 0.35 : 1,
-          transition: 'all 0.2s',
-          position: 'relative',
-        }}
-        onMouseEnter={e => {
-          if (isHighlighted) e.currentTarget.style.borderColor = '#f1c40f'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.borderColor = isOccupied
-            ? roomColorBorder(slot.color)
-            : isHighlighted ? '#2ecc71' : '#2a2a4a'
-        }}
-      >
-        {isOccupied && occupiedRoom ? (
-          <>
-            <span style={{ fontWeight: 600, fontSize: 10 }}>{occupiedRoom.name}</span>
-            <span style={{ fontSize: 8, opacity: 0.7 }}>🛏️{occupiedRoom.capacity}</span>
-          </>
-        ) : (
-          <>
-            <span style={{ fontSize: 10, fontWeight: 600, color: '#f1c40f' }}>{slot.cost}元</span>
-            <div style={{
-              width: 8, height: 8, borderRadius: 2, marginTop: 2,
-              background: slotColor(slot.color),
-            }} />
-          </>
-        )}
-      </button>
-    )
-  }
-
-  const rowLayouts = [3, 2, 1, 0]
-
-  return (
-    <div style={{
-      background: '#0f0f1a', borderRadius: 12, padding: 12,
-      border: '1px solid #2a2a4a',
-    }}>
-      <div style={{
-        fontSize: 9, color: '#555', marginBottom: 6, textAlign: 'center', letterSpacing: 3,
-      }}>
-        ─── Grand Austria Hotel ───
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-        {rowLayouts.map(row => {
-          const slots = player.roomSlots
-            .filter(s => s.row === row)
-            .sort((a, b) => a.col - b.col)
-          return (
-            <div key={row} style={{ display: 'flex', gap: 3, justifyContent: 'center' }}>
-              {slots.map(renderSlot)}
-            </div>
-          )
-        })}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 6, fontSize: 9 }}>
-        <span style={{ color: '#e74c3c' }}>■ 红色区</span>
-        <span style={{ color: '#f1c40f' }}>■ 黄色区</span>
-        <span style={{ color: '#4A90D9' }}>■ 蓝色区</span>
-        <span style={{ color: '#888' }}>红7 黄6 蓝7</span>
-      </div>
-      {!selectedRoomId && player.setupRoomCount < 3 && (
-        <p style={{ color: '#888', fontSize: 10, textAlign: 'center', margin: '5px 0 0 0' }}>
-          左侧选择一个客房 → 再点击版图上的空位放置
-        </p>
-      )}
-      {selectedRoomId && player.setupRoomCount < 3 && (
-        <p style={{ color: '#2ecc71', fontSize: 10, textAlign: 'center', margin: '5px 0 0 0' }}>
-          点击版图上绿色边框的空位放置（从 <strong>左下角</strong> 开始，必须相邻）
-        </p>
-      )}
-    </div>
-  )
-}
-
-function guestColorStyle(color: string): React.CSSProperties {
+function guestColorStyle(color: string) {
   const map: Record<string, string> = {
     blue: '#4A90D9', yellow: '#f1c40f', red: '#e74c3c', green: '#2ecc71',
   }
   return { color: map[color] || '#888', fontSize: 11, fontWeight: 600 }
 }
 
-function slotColor(color: string): string {
-  const map: Record<string, string> = {
-    red: '#5a2a2a', yellow: '#5a4a1a', blue: '#2a3a5a',
-  }
-  return map[color] || '#2a2a4a'
+function SetupHotelBoardGrid() {
+  const players = useGameStore(s => s.players)
+  const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)
+  const player = players[setupPlayerIndex]
+  const autoPlaceRoom = useGameStore(s => s.autoPlaceRoom)
+
+  return (
+    <HotelBoardGrid
+      player={player}
+      interactive={player.setupRoomCount < 3}
+      canPlaceSlot={(slot) => {
+        if (slot.roomId) return false
+        if (player.resources.money < slot.cost) return false
+        if (player.setupRoomCount === 0) return slot.row === 0 && slot.col === 0
+        return player.roomSlots.some(s =>
+          s.roomId && Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1
+        )
+      }}
+      onPlaceRoom={(row, col) => autoPlaceRoom(row, col)}
+    />
+  )
 }
 
-function roomColorBorder(color: string): string {
-  const map: Record<string, string> = {
-    red: '#e74c3c', yellow: '#f1c40f', blue: '#4A90D9',
-  }
-  return map[color] || '#888'
-}
+
