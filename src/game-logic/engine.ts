@@ -65,7 +65,7 @@ export function initializeGame(playerCount: number): GameState {
 
   return {
     phase: 'setup_guest',
-    currentPlayerIndex: playerCount - 1,
+    currentPlayerIndex: 0,
     players,
     dice: Array.from({ length: diceCount }, (_, i) => ({ id: i, value: 0, kept: false, used: false })),
     availableGuests: sg.slice(0, 5),
@@ -75,10 +75,10 @@ export function initializeGame(playerCount: number): GameState {
     roundNumber: 1,
     maxPlayers: playerCount,
     winner: null,
-    logs: ['游戏开始！', `请逆时针顺序免费邀请一位客人到咖啡厅`],
+    logs: ['游戏开始！', `请从最后玩家开始逆时针顺序免费邀请一位客人到咖啡厅`],
     gameStarted: true,
     emperorScoringCount: 0,
-    setupPlayerIndex: playerCount - 1,
+    setupPlayerIndex: (playerCount - 1),
   }
 }
 
@@ -86,8 +86,9 @@ export function initializeGame(playerCount: number): GameState {
 
 function getSetupOrder(playerCount: number, firstPlayer: number): number[] {
   const order: number[] = []
+  const lastPlayer = (firstPlayer + playerCount - 1) % playerCount
   for (let i = 0; i < playerCount; i++) {
-    order.push((firstPlayer - i + playerCount) % playerCount)
+    order.push((lastPlayer - i + playerCount) % playerCount)
   }
   return order
 }
