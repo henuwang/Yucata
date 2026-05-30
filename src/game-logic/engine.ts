@@ -3,8 +3,8 @@ import { createResources } from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
 import { staffCards } from '../data/staff'
+import { emperorTiles } from '../data/emperorTiles'
 
-const MAX_ROUNDS = 7
 const DICE_COUNT: Record<number, number> = { 2: 10, 3: 12, 4: 14 }
 const MAX_CAFE_SEATS = 3
 
@@ -15,6 +15,18 @@ function shuffle<T>(array: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]]
   }
   return a
+}
+
+function pickOneFromEachGroup<T extends { group: string }>(items: T[]): T[] {
+  const groups: Record<string, T[]> = {}
+  items.forEach(item => {
+    if (!groups[item.group]) groups[item.group] = []
+    groups[item.group].push(item)
+  })
+  return Object.values(groups).map(group => {
+    const shuffled = shuffle(group)
+    return shuffled[0]
+  })
 }
 
 function createPlayer(id: string, name: string, color: string): Player {
@@ -45,6 +57,7 @@ export function initializeGame(playerCount: number): GameState {
   players[0].isFirstPlayer = true
 
   const diceCount = DICE_COUNT[playerCount] ?? 10
+  const selectedEmperorTiles = pickOneFromEachGroup(emperorTiles)
 
   return {
     phase: 'dice_roll',
@@ -54,11 +67,13 @@ export function initializeGame(playerCount: number): GameState {
     availableGuests: sg.slice(0, 5),
     availableRooms: sr.slice(0, 6),
     availableStaff: ss.slice(0, 4),
+    emperorTiles: selectedEmperorTiles,
     roundNumber: 1,
     maxPlayers: playerCount,
     winner: null,
     logs: ['游戏开始！', `本轮将使用 ${diceCount} 颗骰子`],
     gameStarted: true,
+    emperorScoringCount: 0,
   }
 }
 
@@ -146,7 +161,7 @@ export function performAreaAction3(state: GameState, roomId: string): GameState 
   const counts = getActionAreaCounts(state.dice)
   if (counts[3] <= 0) return state
 
-  const room = roomTiles.find(r => r.id === roomId)
+  const room = state.availableRooms.find(r => r.id === roomId)
   const player = state.players[state.currentPlayerIndex]
   if (!room || player.builtRooms.some(r => r.id === roomId)) return state
   const cost = room.cost.money ?? 0
@@ -261,7 +276,8 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
     }
   } else if (targetArea === 3) {
     const created = performAreaAction3(baseState, subAction)
-    return { ...created, dice, currentPlayerIndex: nextIdx }
+    const finalDice = removeOneDieFromArea(created.dice, 6)
+    return { ...created, dice: finalDice, currentPlayerIndex: nextIdx }
   } else if (targetArea === 4) {
     const empAdv = parseInt(subAction) || 0
     const moneyGain = n - empAdv
@@ -391,36 +407,122 @@ function calculateEmperorScore(position: number): number {
   return EMPEROR_SCORE_MAP[Math.min(position, 13)] ?? 0
 }
 
-function calculateRoundEndEmperorScore(state: GameState): GameState {
-  const players = state.players.map(p => ({
-    ...p, score: p.score + calculateEmperorScore(p.emperorTrack),
-  }))
-  return { ...state, players, logs: [...state.logs, `👑 皇帝计分！`] }
+const EMPEROR_REGRESSION = [3, 5, 7]
+
+function applyEmperorEffect(player: Player, effect: { amount?: number; type: string }): Player {
+  switch (effect.type) {
+    case 'money':
+      return { ...player, resources: { ...player.resources, money: Math.max(0, player.resources.money + (effect.amount ?? 0)) } }
+    case 'score':
+      return { ...player, score: Math.max(0, player.score + (effect.amount ?? 0)) }
+    case 'food':
+      return { ...player, resources: { ...player.resources, food: player.resources.food + (effect.amount ?? 0) } }
+    case 'mixed_food':
+      return {
+        ...player,
+        resources: {
+          ...player.resources,
+          food: player.resources.food + 1,
+          cake: player.resources.cake + 1,
+          wine: player.resources.wine + 1,
+          coffee: player.resources.coffee + 1,
+        },
+      }
+    case 'score_per_staff':
+      return { ...player, score: Math.max(0, player.score + (effect.amount ?? 0) * player.staffCards.length) }
+    default:
+      return player
+  }
 }
 
-// --- End Game ---
-
-export function checkEndGame(state: GameState): GameState {
-  const round = state.roundNumber
-  if (round <= 0) return state
-
-  if (round >= MAX_ROUNDS) {
-    let sorted = [...state.players].sort((a, b) => {
-      const scoreDiff = b.score - a.score
-      if (scoreDiff !== 0) return scoreDiff
-
-      const aRemaining = a.resources.food + a.resources.wine + a.resources.coffee + a.resources.cake + a.resources.money
-      const bRemaining = b.resources.food + b.resources.wine + b.resources.coffee + b.resources.cake + b.resources.money
-      return bRemaining - aRemaining
-    })
-    const winner = sorted[0]
-    return {
-      ...state, phase: 'game_end', winner,
-      logs: [...state.logs, `游戏结束！${winner.name} 以 ${winner.score} 分获胜！`],
+function getAutoResolvedPenalty(player: Player, penalties: { amount?: number; type: string; description: string }[]): ({ amount?: number; type: string; description: string }) | null {
+  for (const penalty of penalties) {
+    if (penalty.type === 'money') {
+      const needed = Math.abs(penalty.amount ?? 0)
+      if (player.resources.money >= needed) return penalty
+    }
+    if (penalty.type === 'score') {
+      return penalty
     }
   }
+  return null
+}
 
-  return state
+export function performEmperorScoring(state: GameState): GameState {
+  const scoringIndex = state.emperorScoringCount
+  if (scoringIndex >= 3) return state
+
+  const regression = EMPEROR_REGRESSION[scoringIndex]
+  const newCount = scoringIndex + 1
+
+  let logs: string[] = [...state.logs, `👑 第${newCount}次皇帝计分！ (回退${regression}格)`]
+  const players = state.players.map(p => {
+    const scoreGain = calculateEmperorScore(p.emperorTrack)
+    const newTrack = Math.max(0, p.emperorTrack - regression)
+    let updatedPlayer: Player = { ...p, score: p.score + scoreGain, emperorTrack: newTrack }
+
+    const finalPos = p.emperorTrack
+    logs.push(`${p.name}: 皇帝轨道${p.emperorTrack}格 → 获得${scoreGain}分 → 回退到${newTrack}格`)
+
+    if (finalPos >= 3) {
+      const tile = state.emperorTiles[scoringIndex]
+      if (tile) {
+        updatedPlayer = applyEmperorEffect(updatedPlayer, tile.reward)
+        logs.push(`${p.name} 获得皇帝奖励: ${tile.reward.description}`)
+      }
+    } else if (finalPos === 0) {
+      const tile = state.emperorTiles[scoringIndex]
+      if (tile) {
+        const autoPenalty = getAutoResolvedPenalty(updatedPlayer, tile.penalties)
+        if (autoPenalty) {
+          updatedPlayer = applyEmperorEffect(updatedPlayer, autoPenalty)
+          logs.push(`${p.name} 受到皇帝惩罚: ${autoPenalty.description}`)
+        } else {
+          logs.push(`${p.name} 需要选择惩罚: ${tile.penalties.map(t => t.description).join(' 或 ')}`)
+        }
+      }
+    }
+
+    return updatedPlayer
+  })
+
+  return { ...state, players, logs, emperorScoringCount: newCount }
+}
+
+// --- Final Scoring ---
+
+export function performFinalScoring(state: GameState): GameState {
+  const players = state.players.map(p => {
+    let finalScore = p.score
+    const roomScore = p.builtRooms.reduce((sum, r) => {
+      const builtRooms = p.builtRooms.filter(br => br.color === r.color)
+      const rowIndex = builtRooms.indexOf(r)
+      return sum + (rowIndex >= 0 ? rowIndex + 1 : 0)
+    }, 0)
+    finalScore += roomScore
+
+    const remainingResources = p.resources.food + p.resources.wine + p.resources.coffee + p.resources.cake + p.resources.money
+    finalScore += remainingResources
+
+    const waitingPenalty = p.guestWaitingArea.length * 5
+    finalScore -= waitingPenalty
+
+    return { ...p, score: Math.max(0, finalScore) }
+  })
+
+  const sorted = [...players].sort((a, b) => {
+    const scoreDiff = b.score - a.score
+    if (scoreDiff !== 0) return scoreDiff
+    const aRemaining = a.resources.food + a.resources.wine + a.resources.coffee + a.resources.cake + a.resources.money
+    const bRemaining = b.resources.food + b.resources.wine + b.resources.coffee + b.resources.cake + b.resources.money
+    return bRemaining - aRemaining
+  })
+
+  const winner = sorted[0]
+  return {
+    ...state, players, phase: 'game_end', winner,
+    logs: [...state.logs, '📊 最终计分完成!', `🏆 ${winner.name} 以 ${winner.score} 分获胜！`],
+  }
 }
 
 // --- Round Management ---
@@ -429,16 +531,10 @@ export function startNextRound(state: GameState): GameState {
   const nextFirst = getNextRoller(state)
   const players = state.players.map((p, i) => ({ ...p, isFirstPlayer: i === nextFirst }))
 
-  let newState: GameState = {
+  return {
     ...state, phase: 'dice_roll', currentPlayerIndex: nextFirst, players,
     dice: Array.from({ length: state.dice.length }, (_, i) => ({ id: i, value: 0, kept: false, used: false })),
     roundNumber: state.roundNumber + 1,
     logs: [...state.logs, `--- 第${state.roundNumber + 1}轮 ---`],
   }
-
-  if (state.roundNumber === 3 || state.roundNumber === 5) {
-    newState = calculateRoundEndEmperorScore(newState)
-  }
-
-  return newState
 }

@@ -76,6 +76,19 @@ export interface Player {
   isFirstPlayer: boolean
 }
 
+export interface EmperorEffect {
+  type: 'money' | 'score' | 'food' | 'mixed_food' | 'staff_draw_play' | 'free_room' | 'free_room_built' | 'staff_draw_free' | 'score_per_staff' | 'free_staff' | 'remove_guest' | 'remove_built_room' | 'lose_staff' | 'lose_kitchen'
+  amount?: number
+  description: string
+}
+
+export interface EmperorTile {
+  id: string
+  group: 'A' | 'B' | 'C'
+  reward: EmperorEffect
+  penalties: EmperorEffect[]
+}
+
 export interface GameState {
   phase: GamePhase
   currentPlayerIndex: number
@@ -84,9 +97,11 @@ export interface GameState {
   availableGuests: GuestCard[]
   availableRooms: RoomTile[]
   availableStaff: StaffCard[]
+  emperorTiles: EmperorTile[]
   roundNumber: number
   maxPlayers: number
   winner: Player | null
   logs: string[]
   gameStarted: boolean
+  emperorScoringCount: number
 }

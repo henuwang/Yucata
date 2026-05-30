@@ -46,6 +46,7 @@ export function GameBoard() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <GuestLobby />
+          <EmperorTilesPanel />
           <StaffSummary />
         </div>
       </div>
@@ -143,6 +144,63 @@ function GuestLobby() {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function EmperorTilesPanel() {
+  const emperorTiles = useGameStore(s => s.emperorTiles)
+  const emperorScoringCount = useGameStore(s => s.emperorScoringCount)
+  const players = useGameStore(s => s.players)
+  const currentIdx = useGameStore(s => s.currentPlayerIndex)
+
+  return (
+    <div style={{
+      background: '#1a1a2e',
+      borderRadius: 12,
+      padding: 16,
+      border: '1px solid #2a2a4a',
+    }}>
+      <h3 style={{ margin: '0 0 10px 0', color: '#e0e0e0', fontSize: 15 }}>
+        👑 皇帝板块 (计分: {emperorScoringCount}/3)
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {emperorTiles.map((tile, i) => {
+          const scored = i < emperorScoringCount
+          return (
+            <div key={tile.id} style={{
+              background: scored ? '#1a2744' : '#2a2a4a',
+              border: `1px solid ${scored ? '#4a7db5' : '#4a4a6a'}`,
+              borderRadius: 6,
+              padding: '6px 10px',
+              opacity: scored ? 1 : 0.5,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 12 }}>
+                  {tile.id} {scored ? '✅' : '⏳'}
+                </span>
+                <span style={{ color: '#f1c40f', fontSize: 10 }}>第{i * 2 + 3}轮</span>
+              </div>
+              <div style={{ fontSize: 10, color: '#2ecc71', marginTop: 2 }}>
+                🎁 {tile.reward.description}
+              </div>
+              <div style={{ fontSize: 10, color: '#e74c3c' }}>
+                ⚠️ {tile.penalties.length > 1 ? `${tile.penalties[0].description} 或 ${tile.penalties[1].description}` : tile.penalties[0].description}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ marginTop: 8 }}>
+        {players.map((p, i) => (
+          <div key={p.id} style={{
+            fontSize: 11, color: i === currentIdx ? '#e0e0e0' : '#666',
+            margin: '2px 0',
+          }}>
+            <span style={{ color: p.color }}>●</span> {p.name}: 皇帝轨道 {p.emperorTrack}
+          </div>
+        ))}
       </div>
     </div>
   )

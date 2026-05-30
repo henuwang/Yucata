@@ -9,7 +9,6 @@ import {
   serveGuest,
   buildRoom,
   hireStaff,
-  checkEndGame,
   getNextPlayer,
   startNextRound,
   canBuildRoom,
@@ -24,6 +23,8 @@ import {
   performAreaAction4,
   performAreaAction5,
   performAreaAction6,
+  performEmperorScoring,
+  performFinalScoring,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -105,7 +106,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (getTotalUnusedDice(next.dice) === 0) {
       set({ ...next, phase: 'action', logs: [...next.logs, '所有骰子已用完，进入行动阶段'] })
     } else {
-      set(next)
+      set({ ...next })
     }
   },
 
@@ -115,7 +116,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const guest = state.availableGuests.find(g => g.id === guestId)
     if (!guest || !canInviteGuest(player, guest)) return
     const next = inviteGuest(state, player.id, guestId)
-    set(next)
+    set({ ...next })
   },
 
   serveWaitingGuest: (guestId: string) => {
@@ -128,8 +129,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const players = state.players.map((p, i) =>
       i === state.currentPlayerIndex ? updatedPlayer : p
     )
-    const checked = checkEndGame({ ...state, players })
-    set({ ...checked, players })
+    set({ ...state, players })
   },
 
   constructRoom: (roomId: string) => {
@@ -143,8 +143,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       i === state.currentPlayerIndex ? updatedPlayer : p
     )
     const availableRooms = state.availableRooms.filter(r => r.id !== roomId)
-    const checked = checkEndGame({ ...state, players, availableRooms })
-    set({ ...checked, players, availableRooms })
+    set({ ...state, players, availableRooms })
   },
 
   hireStaffMember: (staffId: string) => {
@@ -166,20 +165,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const nextIdx = getNextPlayer(state)
     const isRoundEnd = nextIdx === state.players.findIndex(p => p.isFirstPlayer)
 
-    let checked = checkEndGame(state)
-    if (checked.phase === 'game_end') {
-      set(checked)
-      return
-    }
-
-    if (isRoundEnd) {
-      set(startNextRound(state))
-    } else {
+    if (!isRoundEnd) {
       set({
         phase: 'action',
         currentPlayerIndex: nextIdx,
         logs: [...state.logs, `${state.players[nextIdx].name} 的行动阶段`],
       })
+      return
+    }
+
+    if (state.roundNumber >= 7) {
+      const withEmperor = performEmperorScoring(state)
+      const finalState = performFinalScoring(withEmperor)
+      set(finalState as unknown as Partial<GameStore>)
+    } else {
+      const afterScoring = state.roundNumber === 3 || state.roundNumber === 5
+        ? performEmperorScoring(state)
+        : state
+      set(startNextRound(afterScoring) as unknown as Partial<GameStore>)
     }
   },
 
