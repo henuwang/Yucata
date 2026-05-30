@@ -25,10 +25,16 @@ import {
   performAreaAction6,
   performEmperorScoring,
   performFinalScoring,
+  pickSetupGuest,
+  placeSetupRoom,
+  skipSetupRoom,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
   startGame: (playerCount: number) => void
+  pickSetupGuest: (guestId: string) => void
+  placeSetupRoom: (roomId: string, slotRow: number, slotCol: number) => void
+  skipSetupRoom: () => void
   rollDice: () => void
   rerollDice: () => void
   lockDie: (dieId: number) => void
@@ -48,6 +54,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   startGame: (playerCount: number) => {
     set(initializeGame(playerCount))
+  },
+
+  pickSetupGuest: (guestId: string) => {
+    const next = pickSetupGuest(get(), guestId)
+    set({ ...next })
+  },
+
+  placeSetupRoom: (roomId: string, slotRow: number, slotCol: number) => {
+    const next = placeSetupRoom(get(), roomId, slotRow, slotCol)
+    set({ ...next })
+  },
+
+  skipSetupRoom: () => {
+    const next = skipSetupRoom(get())
+    set({ ...next })
   },
 
   rollDice: () => {

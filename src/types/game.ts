@@ -6,7 +6,7 @@ export type RoomColor = 'blue' | 'yellow' | 'red'
 
 export type StaffAbility = 'extra_resource' | 'discount' | 'extra_vp' | 'dice_reroll' | 'guest_discount'
 
-export type GamePhase = 'dice_roll' | 'dice_draft' | 'action' | 'game_end'
+export type GamePhase = 'setup_guest' | 'setup_room' | 'dice_roll' | 'dice_draft' | 'action' | 'game_end'
 
 export interface Resources {
   food: number
@@ -43,6 +43,15 @@ export interface GuestCard {
   guestCost: number
 }
 
+export interface HotelBoardSlot {
+  row: number
+  col: number
+  cost: number
+  color: RoomColor
+  groupId: number
+  roomId: string | null
+}
+
 export interface RoomTile {
   id: string
   name: string
@@ -72,8 +81,10 @@ export interface Player {
   guestWaitingArea: GuestCard[]
   guestServedArea: GuestCard[]
   builtRooms: RoomTile[]
+  roomSlots: HotelBoardSlot[]
   staffCards: StaffCard[]
   isFirstPlayer: boolean
+  setupRoomCount: number
 }
 
 export interface EmperorEffect {
@@ -104,4 +115,5 @@ export interface GameState {
   logs: string[]
   gameStarted: boolean
   emperorScoringCount: number
+  setupPlayerIndex: number
 }

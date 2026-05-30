@@ -4,9 +4,11 @@ import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
 import { staffCards } from '../data/staff'
 import { emperorTiles } from '../data/emperorTiles'
+import { createHotelBoard } from '../data/hotelBoard'
 
 const DICE_COUNT: Record<number, number> = { 2: 10, 3: 12, 4: 14 }
 const MAX_CAFE_SEATS = 3
+const MAX_SETUP_ROOMS = 3
 
 function shuffle<T>(array: T[]): T[] {
   const a = [...array]
@@ -38,8 +40,10 @@ function createPlayer(id: string, name: string, color: string): Player {
     guestWaitingArea: [],
     guestServedArea: [],
     builtRooms: [],
+    roomSlots: createHotelBoard(),
     staffCards: [],
     isFirstPlayer: false,
+    setupRoomCount: 0,
   }
 }
 
@@ -60,8 +64,8 @@ export function initializeGame(playerCount: number): GameState {
   const selectedEmperorTiles = pickOneFromEachGroup(emperorTiles)
 
   return {
-    phase: 'dice_roll',
-    currentPlayerIndex: 0,
+    phase: 'setup_guest',
+    currentPlayerIndex: playerCount - 1,
     players,
     dice: Array.from({ length: diceCount }, (_, i) => ({ id: i, value: 0, kept: false, used: false })),
     availableGuests: sg.slice(0, 5),
@@ -71,10 +75,177 @@ export function initializeGame(playerCount: number): GameState {
     roundNumber: 1,
     maxPlayers: playerCount,
     winner: null,
-    logs: ['游戏开始！', `本轮将使用 ${diceCount} 颗骰子`],
+    logs: ['游戏开始！', `请逆时针顺序免费邀请一位客人到咖啡厅`],
     gameStarted: true,
     emperorScoringCount: 0,
+    setupPlayerIndex: playerCount - 1,
   }
+}
+
+// --- Setup Phase ---
+
+function getSetupOrder(playerCount: number, firstPlayer: number): number[] {
+  const order: number[] = []
+  for (let i = 0; i < playerCount; i++) {
+    order.push((firstPlayer - i + playerCount) % playerCount)
+  }
+  return order
+}
+
+export function pickSetupGuest(state: GameState, guestId: string): GameState {
+  const pIdx = state.setupPlayerIndex
+  const player = state.players[pIdx]
+  if (!player || player.guestWaitingArea.length >= MAX_CAFE_SEATS) return state
+
+  const guestIdx = state.availableGuests.findIndex(g => g.id === guestId)
+  if (guestIdx === -1) return state
+  const guest = state.availableGuests[guestIdx]
+
+  const newGuests = [...player.guestWaitingArea, guest]
+  const players = state.players.map((p, i) =>
+    i === pIdx ? { ...p, guestWaitingArea: newGuests } : p
+  )
+
+  const remainingGuests = state.availableGuests.filter((_, i) => i !== guestIdx)
+  const newGuestFromDeck = guestCards.find(g => !remainingGuests.some(rg => rg.id === g.id) && !state.players.some(p => p.guestWaitingArea.some(gw => gw.id === g.id) || p.guestServedArea.some(gs => gs.id === g.id)))
+  const finalGuests = newGuestFromDeck
+    ? [...remainingGuests, newGuestFromDeck]
+    : remainingGuests
+
+  const setupOrder = getSetupOrder(state.maxPlayers, state.players.findIndex(p => p.isFirstPlayer))
+  const currentSetupIdx = setupOrder.indexOf(pIdx)
+
+  if (currentSetupIdx >= setupOrder.length - 1) {
+    return {
+      ...state, players, availableGuests: finalGuests,
+      phase: 'setup_room',
+      setupPlayerIndex: setupOrder[0],
+      logs: [...state.logs, `${player.name} 免费邀请了${guest.name}`, `所有玩家已邀请完客人，开始准备房间`],
+    }
+  }
+
+  const nextSetupPlayer = setupOrder[currentSetupIdx + 1]
+  return {
+    ...state, players, availableGuests: finalGuests,
+    setupPlayerIndex: nextSetupPlayer,
+    logs: [...state.logs, `${player.name} 免费邀请了${guest.name}`, `轮到 ${state.players[nextSetupPlayer].name} 邀请客人`],
+  }
+}
+
+export function canPlaceSetupRoom(state: GameState, slotRow: number, slotCol: number): boolean {
+  const player = state.players[state.setupPlayerIndex]
+  if (player.setupRoomCount >= MAX_SETUP_ROOMS) return false
+
+  const slotIdx = player.roomSlots.findIndex(s => s.row === slotRow && s.col === slotCol)
+  if (slotIdx === -1) return false
+  const slot = player.roomSlots[slotIdx]
+  if (slot.roomId) return false
+
+  if (player.setupRoomCount === 0) {
+    return slot.row === 0 && slot.col === 0
+  }
+
+  const hasAdjacent = player.roomSlots.some(s =>
+    s.roomId &&
+    Math.abs(s.row - slotRow) + Math.abs(s.col - slotCol) === 1
+  )
+  return hasAdjacent
+}
+
+export function getAvailableColorsForSetup(state: GameState): string[] {
+  const player = state.players[state.setupPlayerIndex]
+  const colors: string[] = []
+  if (player.setupRoomCount === 0) return ['red', 'yellow', 'blue']
+  const placedColors = new Set(player.roomSlots.filter(s => s.roomId).map(s => s.color))
+  placedColors.forEach(c => colors.push(c))
+  return colors.length > 0 ? colors : ['red', 'yellow', 'blue']
+}
+
+export function placeSetupRoom(state: GameState, roomId: string, slotRow: number, slotCol: number): GameState {
+  if (!canPlaceSetupRoom(state, slotRow, slotCol)) return state
+
+  const pIdx = state.setupPlayerIndex
+  const player = state.players[pIdx]
+  const room = state.availableRooms.find(r => r.id === roomId)
+  if (!room) return state
+
+  const slotIdx = player.roomSlots.findIndex(s => s.row === slotRow && s.col === slotCol)
+  if (slotIdx === -1) return state
+  const slot = player.roomSlots[slotIdx]
+  if (slot.color !== room.color) return state
+
+  const cost = slot.cost
+  if (player.resources.money < cost) return state
+
+  const newSlots = player.roomSlots.map((s, i) =>
+    i === slotIdx ? { ...s, roomId: room.id } : s
+  )
+
+  const newRes = { ...player.resources, money: player.resources.money - cost }
+  const updatedPlayer = {
+    ...player,
+    resources: newRes,
+    builtRooms: [...player.builtRooms, { ...room, isBuilt: true }],
+    roomSlots: newSlots,
+    setupRoomCount: player.setupRoomCount + 1,
+  }
+
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
+  const availableRooms = state.availableRooms.filter(r => r.id !== roomId)
+
+  const setupOrder = getSetupOrder(state.maxPlayers, state.players.findIndex(p => p.isFirstPlayer))
+  const currentSetupIdx = setupOrder.indexOf(pIdx)
+
+  if (currentSetupIdx >= setupOrder.length - 1) {
+    const allDone = players.every(p => p.setupRoomCount >= MAX_SETUP_ROOMS || p.resources.money < Math.min(...p.roomSlots.filter(s => !s.roomId).map(s => s.cost)))
+    if (allDone) {
+      return {
+        ...state, players, availableRooms,
+        phase: 'dice_roll',
+        currentPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
+        setupPlayerIndex: 0,
+        logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, '所有玩家准备完成，游戏正式开始！'],
+      }
+    }
+
+    const nextPlayer = setupOrder[0]
+    return {
+      ...state, players, availableRooms,
+      setupPlayerIndex: nextPlayer,
+      logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, `轮到 ${state.players[nextPlayer].name} 准备房间`],
+    }
+  }
+
+  const nextPlayer = setupOrder[currentSetupIdx + 1]
+  return {
+    ...state, players, availableRooms,
+    setupPlayerIndex: nextPlayer,
+    logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, `轮到 ${state.players[nextPlayer].name} 准备房间`],
+  }
+}
+
+export function skipSetupRoom(state: GameState): GameState {
+  const pIdx = state.setupPlayerIndex
+  const setupOrder = getSetupOrder(state.maxPlayers, state.players.findIndex(p => p.isFirstPlayer))
+  const currentSetupIdx = setupOrder.indexOf(pIdx)
+
+  if (currentSetupIdx >= setupOrder.length - 1) {
+    const allDone = true
+    if (allDone) {
+      return {
+        ...state,
+        phase: 'dice_roll',
+        currentPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
+        setupPlayerIndex: 0,
+        logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`, '所有玩家准备完成，游戏正式开始！'],
+      }
+    }
+    const nextPlayer = setupOrder[0]
+    return { ...state, setupPlayerIndex: nextPlayer, logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`] }
+  }
+
+  const nextPlayer = setupOrder[currentSetupIdx + 1]
+  return { ...state, setupPlayerIndex: nextPlayer, logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`] }
 }
 
 export function rollAllDice(count: number): Die[] {
