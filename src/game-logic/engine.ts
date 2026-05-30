@@ -64,21 +64,53 @@ export function initializeGame(playerCount: number): GameState {
   const selectedEmperorTiles = pickOneFromEachGroup(emperorTiles)
 
   return {
-    phase: 'setup_guest',
+    phase: 'setup_staff',
     currentPlayerIndex: 0,
     players,
     dice: Array.from({ length: diceCount }, (_, i) => ({ id: i, value: 0, kept: false, used: false })),
     availableGuests: sg.slice(0, 5),
     availableRooms: sr.slice(0, 6),
-    availableStaff: ss.slice(0, 4),
+    availableStaff: ss,
     emperorTiles: selectedEmperorTiles,
     roundNumber: 1,
     maxPlayers: playerCount,
     winner: null,
-    logs: ['游戏开始！', `请从最后玩家开始逆时针顺序免费邀请一位客人到咖啡厅`],
+    logs: ['游戏开始！', '请每位玩家按顺序抽取6张员工卡'],
     gameStarted: true,
     emperorScoringCount: 0,
-    setupPlayerIndex: (playerCount - 1),
+    setupPlayerIndex: 0,
+  }
+}
+
+// --- Staff Draft Phase ---
+
+export function drawStaffCardsForPlayer(state: GameState): GameState {
+  const pIdx = state.setupPlayerIndex
+  const player = state.players[pIdx]
+  if (player.staffCards.length >= 6) return state
+
+  const deck = state.availableStaff
+  const drawn = deck.slice(0, 6)
+  const remaining = deck.slice(6)
+  const updatedPlayer = { ...player, staffCards: [...player.staffCards, ...drawn] }
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
+
+  const nextIdx = (pIdx + 1) % state.maxPlayers
+  const allDrawn = players.every(p => p.staffCards.length >= 6)
+
+  if (allDrawn) {
+    return {
+      ...state, players, availableStaff: remaining.slice(0, 4),
+      phase: 'setup_guest',
+      setupPlayerIndex: (state.maxPlayers - 1),
+      logs: [...state.logs, `${player.name} 抽取了6张员工卡`, '所有玩家已抽取员工卡，开始邀请客人'],
+    }
+  }
+
+  return {
+    ...state, players, availableStaff: remaining,
+    setupPlayerIndex: nextIdx,
+    logs: [...state.logs, `${player.name} 抽取了6张员工卡`, `轮到 ${state.players[nextIdx].name} 抽取员工卡`],
   }
 }
 

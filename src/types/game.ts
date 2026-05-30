@@ -6,7 +6,7 @@ export type RoomColor = 'blue' | 'yellow' | 'red'
 
 export type StaffAbility = 'extra_resource' | 'discount' | 'extra_vp' | 'dice_reroll' | 'guest_discount'
 
-export type GamePhase = 'setup_guest' | 'setup_room' | 'dice_roll' | 'dice_draft' | 'action' | 'game_end'
+export type GamePhase = 'setup_staff' | 'setup_guest' | 'setup_room' | 'dice_roll' | 'dice_draft' | 'action' | 'game_end'
 
 export interface Resources {
   food: number

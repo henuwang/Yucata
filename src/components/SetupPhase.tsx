@@ -1,6 +1,87 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 
+export function SetupStaffPhase() {
+  const phase = useGameStore(s => s.phase)
+  const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)
+  const players = useGameStore(s => s.players)
+  const drawStaffCards = useGameStore(s => s.drawStaffCards)
+
+  if (phase !== 'setup_staff') return null
+
+  const currentPlayer = players[setupPlayerIndex]
+  const allDrawn = players.every(p => p.staffCards.length >= 6)
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.85)',
+    }}>
+      <div style={{
+        background: '#1a1a2e', borderRadius: 16, padding: 32, maxWidth: 500, width: '90%',
+        border: '1px solid #4a4a6a', textAlign: 'center',
+      }}>
+        <h2 style={{ color: '#f1c40f', margin: '0 0 6px 0', fontSize: 20 }}>
+          初始设置 - 抽取员工卡
+        </h2>
+        <p style={{ color: '#888', margin: '0 0 20px 0', fontSize: 13 }}>
+          按顺序每人抽取6张员工卡
+        </p>
+
+        <div style={{
+          background: '#16213e', borderRadius: 10, padding: 16, marginBottom: 16,
+          border: '1px solid #2a2a4a',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ color: currentPlayer.color, fontSize: 24 }}>●</span>
+            <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 16 }}>
+              {currentPlayer.name}
+            </span>
+            <span style={{ color: '#f1c40f', fontSize: 13 }}>
+              (已抽 {currentPlayer.staffCards.length}/6 张)
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {players.map(p => (
+              <div key={p.id} style={{
+                fontSize: 12, color: p.staffCards.length >= 6 ? '#aaa' : '#555',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <span style={{ color: p.color }}>●</span>
+                {p.name}: {p.staffCards.length >= 6 ? `✅ 已抽 ${p.staffCards.length} 张` : `⌛ 待抽 (${p.staffCards.length}/6)`}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {currentPlayer.staffCards.length < 6 && (
+          <button
+            onClick={drawStaffCards}
+            style={{
+              background: 'linear-gradient(135deg, #4A90D9, #357ABD)',
+              color: '#fff', border: 'none', borderRadius: 10, padding: '14px 40px',
+              fontSize: 16, fontWeight: 600, cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)' }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+          >
+            抽取员工卡
+          </button>
+        )}
+
+        {currentPlayer.staffCards.length >= 6 && !allDrawn && (
+          <p style={{ color: '#888', fontSize: 13 }}>
+            等待其他玩家...
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function SetupGuestPhase() {
   const phase = useGameStore(s => s.phase)
   const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)

@@ -4,7 +4,7 @@ import { PlayerBar } from './PlayerBar'
 import { PlayerHotel } from './PlayerHotel'
 import { GameLog } from './GameLog'
 import { WinnerScreen } from './WinnerScreen'
-import { SetupGuestPhase, SetupRoomPhase } from './SetupPhase'
+import { SetupStaffPhase, SetupGuestPhase, SetupRoomPhase } from './SetupPhase'
 import { useGameStore } from '../store/gameStore'
 
 export function GameBoard() {
@@ -12,6 +12,17 @@ export function GameBoard() {
 
   if (phase === 'game_end') {
     return <WinnerScreen />
+  }
+
+  if (phase === 'setup_staff') {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #0f0f1a 100%)',
+      }}>
+        <SetupStaffPhase />
+      </div>
+    )
   }
 
   if (phase === 'setup_guest') {
