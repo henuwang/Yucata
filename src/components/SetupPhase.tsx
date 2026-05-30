@@ -304,51 +304,43 @@ function HotelBoardGrid({ selectedRoomId, onRoomPlaced }: { selectedRoomId: stri
     )
   }
 
-  const rowLayouts = [
-    { row: 3, label: '' },
-    { row: 2, label: '' },
-    { row: 1, label: '' },
-    { row: 0, label: '' },
-  ]
+  const rowLayouts = [3, 2, 1, 0]
 
   return (
     <div style={{
-      background: '#0f0f1a', borderRadius: 12, padding: 16,
+      background: '#0f0f1a', borderRadius: 12, padding: 12,
       border: '1px solid #2a2a4a',
     }}>
+      <div style={{
+        fontSize: 9, color: '#555', marginBottom: 6, textAlign: 'center', letterSpacing: 3,
+      }}>
+        ─── Grand Austria Hotel ───
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-        <div style={{
-          fontSize: 9, color: '#555', marginBottom: 4, letterSpacing: 4,
-          textTransform: 'uppercase',
-        }}>
-          ─── Grand Austria Hotel ───
-        </div>
-        {rowLayouts.map(({ row }) => {
+        {rowLayouts.map(row => {
           const slots = player.roomSlots
             .filter(s => s.row === row)
             .sort((a, b) => a.col - b.col)
           return (
-            <div key={row} style={{
-              display: 'flex', gap: 4, justifyContent: 'center',
-              paddingLeft: row === 3 ? 78 : row === 2 ? 39 : 0,
-            }}>
+            <div key={row} style={{ display: 'flex', gap: 3, justifyContent: 'center' }}>
               {slots.map(renderSlot)}
             </div>
           )
         })}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8, fontSize: 9 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 6, fontSize: 9 }}>
         <span style={{ color: '#e74c3c' }}>■ 红色区</span>
         <span style={{ color: '#f1c40f' }}>■ 黄色区</span>
         <span style={{ color: '#4A90D9' }}>■ 蓝色区</span>
+        <span style={{ color: '#888' }}>红7 黄6 蓝7</span>
       </div>
       {!selectedRoomId && player.setupRoomCount < 3 && (
-        <p style={{ color: '#888', fontSize: 10, textAlign: 'center', margin: '6px 0 0 0' }}>
+        <p style={{ color: '#888', fontSize: 10, textAlign: 'center', margin: '5px 0 0 0' }}>
           左侧选择一个客房 → 再点击版图上的空位放置
         </p>
       )}
       {selectedRoomId && player.setupRoomCount < 3 && (
-        <p style={{ color: '#2ecc71', fontSize: 10, textAlign: 'center', margin: '6px 0 0 0' }}>
+        <p style={{ color: '#2ecc71', fontSize: 10, textAlign: 'center', margin: '5px 0 0 0' }}>
           点击版图上绿色边框的空位放置（从 <strong>左下角</strong> 开始，必须相邻）
         </p>
       )}

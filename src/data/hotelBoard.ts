@@ -1,31 +1,38 @@
 import type { HotelBoardSlot } from '../types/game'
 
+const LAYOUT: { row: number; col: number; cost: number; color: 'red' | 'yellow' | 'blue' }[] = [
+  { row: 3, col: 0, cost: 6, color: 'blue' },
+  { row: 3, col: 1, cost: 7, color: 'blue' },
+  { row: 3, col: 2, cost: 7, color: 'blue' },
+  { row: 3, col: 3, cost: 8, color: 'blue' },
+  { row: 3, col: 4, cost: 8, color: 'blue' },
+
+  { row: 2, col: 0, cost: 4, color: 'blue' },
+  { row: 2, col: 1, cost: 4, color: 'blue' },
+  { row: 2, col: 2, cost: 5, color: 'yellow' },
+  { row: 2, col: 3, cost: 5, color: 'yellow' },
+  { row: 2, col: 4, cost: 6, color: 'yellow' },
+
+  { row: 1, col: 0, cost: 1, color: 'yellow' },
+  { row: 1, col: 1, cost: 2, color: 'yellow' },
+  { row: 1, col: 2, cost: 2, color: 'yellow' },
+  { row: 1, col: 3, cost: 3, color: 'red' },
+  { row: 1, col: 4, cost: 3, color: 'red' },
+
+  { row: 0, col: 0, cost: 0, color: 'red' },
+  { row: 0, col: 1, cost: 0, color: 'red' },
+  { row: 0, col: 2, cost: 0, color: 'red' },
+  { row: 0, col: 3, cost: 1, color: 'red' },
+  { row: 0, col: 4, cost: 1, color: 'red' },
+]
+
 export function createHotelBoard(): HotelBoardSlot[] {
-  const costs = [
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7],
-    [8],
-  ]
-
-  const colorForRow = (row: number): 'red' | 'yellow' | 'blue' => {
-    if (row === 0 || row === 1) return 'red'
-    if (row === 2) return 'yellow'
-    return 'blue'
-  }
-
-  const slots: HotelBoardSlot[] = []
-  costs.forEach((rowCosts, row) => {
-    rowCosts.forEach((cost, col) => {
-      slots.push({
-        row,
-        col,
-        cost,
-        color: colorForRow(row),
-        groupId: row,
-        roomId: null,
-      })
-    })
-  })
-  return slots
+  return LAYOUT.map(({ row, col, cost, color }) => ({
+    row,
+    col,
+    cost,
+    color,
+    groupId: row,
+    roomId: null,
+  }))
 }
