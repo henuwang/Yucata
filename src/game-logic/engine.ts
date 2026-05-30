@@ -42,6 +42,7 @@ function createPlayer(id: string, name: string, color: string): Player {
     builtRooms: [],
     roomSlots: createHotelBoard(),
     staffCards: [],
+    draftHand: [],
     isFirstPlayer: false,
     setupRoomCount: 0,
   }
@@ -85,32 +86,56 @@ export function initializeGame(playerCount: number): GameState {
 // --- Staff Draft Phase ---
 
 export function drawStaffCardsForPlayer(state: GameState): GameState {
+  const deck = state.availableStaff
+  const cardsPerPlayer = 6
+  const totalNeeded = state.maxPlayers * cardsPerPlayer
+  const drawn = deck.slice(0, totalNeeded)
+  const remaining = deck.slice(totalNeeded)
+
+  const players = state.players.map((p, i) => ({
+    ...p,
+    draftHand: drawn.slice(i * cardsPerPlayer, (i + 1) * cardsPerPlayer),
+    staffCards: [],
+  }))
+
+  return {
+    ...state, players, availableStaff: remaining.slice(0, 4),
+    setupPlayerIndex: 0,
+    logs: [...state.logs, `每位玩家获得6张员工卡，${state.players[0].name}先选择`],
+  }
+}
+
+export function pickStaffCardForDraft(state: GameState, cardId: string): GameState {
   const pIdx = state.setupPlayerIndex
   const player = state.players[pIdx]
-  if (player.staffCards.length >= 6) return state
+  if (!player) return state
 
-  const deck = state.availableStaff
-  const drawn = deck.slice(0, 6)
-  const remaining = deck.slice(6)
-  const updatedPlayer = { ...player, staffCards: [...player.staffCards, ...drawn] }
+  const cardIdx = player.draftHand.findIndex(c => c.id === cardId)
+  if (cardIdx === -1) return state
+
+  const picked = player.draftHand[cardIdx]
+  const newDraftHand = player.draftHand.filter((_, i) => i !== cardIdx)
+  const newStaffCards = [...player.staffCards, picked]
+
+  const updatedPlayer = { ...player, draftHand: newDraftHand, staffCards: newStaffCards }
   const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
 
-  const nextIdx = (pIdx + 1) % state.maxPlayers
-  const allDrawn = players.every(p => p.staffCards.length >= 6)
+  const allDone = players.every(p => p.staffCards.length >= 6)
 
-  if (allDrawn) {
+  if (allDone) {
     return {
-      ...state, players, availableStaff: remaining.slice(0, 4),
+      ...state, players,
       phase: 'setup_guest',
       setupPlayerIndex: (state.maxPlayers - 1),
-      logs: [...state.logs, `${player.name} 抽取了6张员工卡`, '所有玩家已抽取员工卡，开始邀请客人'],
+      logs: [...state.logs, `${player.name} 选择了${picked.name}`, '所有玩家已选完员工卡，开始邀请客人'],
     }
   }
 
+  const nextIdx = (pIdx + 1) % state.maxPlayers
   return {
-    ...state, players, availableStaff: remaining,
+    ...state, players,
     setupPlayerIndex: nextIdx,
-    logs: [...state.logs, `${player.name} 抽取了6张员工卡`, `轮到 ${state.players[nextIdx].name} 抽取员工卡`],
+    logs: [...state.logs, `${player.name} 选择了${picked.name}`, `轮到 ${state.players[nextIdx].name} 选择`],
   }
 }
 

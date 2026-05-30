@@ -6,57 +6,30 @@ export function SetupStaffPhase() {
   const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)
   const players = useGameStore(s => s.players)
   const drawStaffCards = useGameStore(s => s.drawStaffCards)
+  const pickStaffCard = useGameStore(s => s.pickStaffCard)
 
   if (phase !== 'setup_staff') return null
 
   const currentPlayer = players[setupPlayerIndex]
-  const allDrawn = players.every(p => p.staffCards.length >= 6)
+  const needsDeal = players.every(p => p.draftHand.length === 0)
 
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 100,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.85)',
-    }}>
+  if (needsDeal) {
+    return (
       <div style={{
-        background: '#1a1a2e', borderRadius: 16, padding: 32, maxWidth: 500, width: '90%',
-        border: '1px solid #4a4a6a', textAlign: 'center',
+        position: 'fixed', inset: 0, zIndex: 100,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.85)',
       }}>
-        <h2 style={{ color: '#f1c40f', margin: '0 0 6px 0', fontSize: 20 }}>
-          初始设置 - 抽取员工卡
-        </h2>
-        <p style={{ color: '#888', margin: '0 0 20px 0', fontSize: 13 }}>
-          按顺序每人抽取6张员工卡
-        </p>
-
         <div style={{
-          background: '#16213e', borderRadius: 10, padding: 16, marginBottom: 16,
-          border: '1px solid #2a2a4a',
+          background: '#1a1a2e', borderRadius: 16, padding: 32, maxWidth: 400, width: '90%',
+          border: '1px solid #4a4a6a', textAlign: 'center',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
-            <span style={{ color: currentPlayer.color, fontSize: 24 }}>●</span>
-            <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 16 }}>
-              {currentPlayer.name}
-            </span>
-            <span style={{ color: '#f1c40f', fontSize: 13 }}>
-              (已抽 {currentPlayer.staffCards.length}/6 张)
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {players.map(p => (
-              <div key={p.id} style={{
-                fontSize: 12, color: p.staffCards.length >= 6 ? '#aaa' : '#555',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <span style={{ color: p.color }}>●</span>
-                {p.name}: {p.staffCards.length >= 6 ? `✅ 已抽 ${p.staffCards.length} 张` : `⌛ 待抽 (${p.staffCards.length}/6)`}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {currentPlayer.staffCards.length < 6 && (
+          <h2 style={{ color: '#f1c40f', margin: '0 0 6px 0', fontSize: 20 }}>
+            初始设置 - 抽取员工卡
+          </h2>
+          <p style={{ color: '#888', margin: '0 0 20px 0', fontSize: 13 }}>
+            每位玩家将获得6张员工卡，按顺序轮流挑选
+          </p>
           <button
             onClick={drawStaffCards}
             style={{
@@ -68,14 +41,92 @@ export function SetupStaffPhase() {
             onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)' }}
             onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
           >
-            抽取员工卡
+            发牌
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.85)',
+    }}>
+      <div style={{
+        background: '#1a1a2e', borderRadius: 16, padding: 28, maxWidth: 700, width: '95%',
+        border: '1px solid #4a4a6a',
+      }}>
+        <h2 style={{ color: '#f1c40f', margin: '0 0 4px 0', fontSize: 17 }}>
+          初始设置 - 选择员工卡
+        </h2>
+        <p style={{ color: '#888', margin: '0 0 12px 0', fontSize: 12 }}>
+          按顺序每人从手牌中选择1张保留
+        </p>
+
+        <div style={{
+          background: '#16213e', borderRadius: 10, padding: 12, marginBottom: 14,
+          border: '1px solid #2a2a4a',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ color: currentPlayer.color, fontSize: 20 }}>●</span>
+            <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 15 }}>
+              {currentPlayer.name}
+            </span>
+            <span style={{ color: '#f1c40f', fontSize: 12 }}>
+              (已选 {currentPlayer.staffCards.length}/6)
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {players.map(p => (
+              <div key={p.id} style={{
+                fontSize: 11, color: p.staffCards.length >= 6 ? '#aaa' : '#666',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+                <span style={{ color: p.color }}>●</span>
+                {p.name}: {p.staffCards.length}/6
+                {p.staffCards.length >= 6 && ' ✅'}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {currentPlayer.draftHand.length > 0 && (
+          <p style={{ color: '#f1c40f', fontSize: 12, marginBottom: 8, textAlign: 'center' }}>
+            请从以下 {currentPlayer.draftHand.length} 张手牌中选择1张
+          </p>
         )}
 
-        {currentPlayer.staffCards.length >= 6 && !allDrawn && (
-          <p style={{ color: '#888', fontSize: 13 }}>
-            等待其他玩家...
-          </p>
+        {currentPlayer.draftHand.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+            {currentPlayer.draftHand.map(card => (
+              <button
+                key={card.id}
+                onClick={() => pickStaffCard(card.id)}
+                style={{
+                  background: '#16213e', border: '1px solid #2a2a4a', borderRadius: 10, padding: 10,
+                  cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = currentPlayer.color; e.currentTarget.style.background = '#1a2744' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a4a'; e.currentTarget.style.background = '#16213e' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 12 }}>{card.name}</span>
+                  <span style={{ color: '#888', fontSize: 9 }}>
+                    {card.timing === 'one_time' ? '一次性' : card.timing === 'once_per_round' ? '每轮' : card.timing === 'permanent' ? '永久' : '终局'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 10, color: '#888', lineHeight: 1.3 }}>{card.description}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
+                  <span style={{ color: '#f39c12' }}>💰{card.cost}</span>
+                  <span style={{ color: '#2ecc71' }}>+{card.victoryPoints}分</span>
+                </div>
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
