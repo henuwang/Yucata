@@ -177,7 +177,7 @@ export function pickSetupGuest(state: GameState, guestId: string): GameState {
     return {
       ...state, players, availableGuests: finalGuests,
       phase: 'setup_room',
-      setupPlayerIndex: setupOrder[0],
+      setupPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
       logs: [...state.logs, `${player.name} 免费邀请了${guest.name}`, `所有玩家已邀请完客人，开始准备房间`],
     }
   }
@@ -251,35 +251,29 @@ export function placeSetupRoom(state: GameState, roomId: string, slotRow: number
   const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
   const availableRooms = state.availableRooms.filter(r => r.id !== roomId)
 
-  const setupOrder = getSetupOrder(state.maxPlayers, state.players.findIndex(p => p.isFirstPlayer))
-  const currentSetupIdx = setupOrder.indexOf(pIdx)
-
-  if (currentSetupIdx >= setupOrder.length - 1) {
-    const allDone = players.every(p => p.setupRoomCount >= MAX_SETUP_ROOMS || p.resources.money < Math.min(...p.roomSlots.filter(s => !s.roomId).map(s => s.cost)))
-    if (allDone) {
-      return {
-        ...state, players, availableRooms,
-        phase: 'dice_roll',
-        currentPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
-        setupPlayerIndex: 0,
-        logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, '所有玩家准备完成，游戏正式开始！'],
-      }
-    }
-
-    const nextPlayer = setupOrder[0]
+  const nextPlayer = getNextSetupPlayer(players)
+  if (nextPlayer === -1) {
     return {
       ...state, players, availableRooms,
-      setupPlayerIndex: nextPlayer,
-      logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, `轮到 ${state.players[nextPlayer].name} 准备房间`],
+      phase: 'dice_roll',
+      currentPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
+      setupPlayerIndex: 0,
+      logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, '所有玩家准备完成，游戏正式开始！'],
     }
   }
 
-  const nextPlayer = setupOrder[currentSetupIdx + 1]
   return {
     ...state, players, availableRooms,
     setupPlayerIndex: nextPlayer,
     logs: [...state.logs, `${player.name} 准备了${room.name}（花费${cost}元）`, `轮到 ${state.players[nextPlayer].name} 准备房间`],
   }
+}
+
+function getNextSetupPlayer(players: Player[]): number {
+  for (let i = 0; i < players.length; i++) {
+    if (players[i].setupRoomCount < MAX_SETUP_ROOMS) return i
+  }
+  return -1
 }
 
 export function autoPlaceSetupRoom(state: GameState, slotRow: number, slotCol: number): GameState {
@@ -300,26 +294,22 @@ export function autoPlaceSetupRoom(state: GameState, slotRow: number, slotCol: n
 
 export function skipSetupRoom(state: GameState): GameState {
   const pIdx = state.setupPlayerIndex
-  const setupOrder = getSetupOrder(state.maxPlayers, state.players.findIndex(p => p.isFirstPlayer))
-  const currentSetupIdx = setupOrder.indexOf(pIdx)
+  const player = state.players[pIdx]
+  const updatedPlayer = { ...player, setupRoomCount: MAX_SETUP_ROOMS }
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
 
-  if (currentSetupIdx >= setupOrder.length - 1) {
-    const allDone = true
-    if (allDone) {
-      return {
-        ...state,
-        phase: 'dice_roll',
-        currentPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
-        setupPlayerIndex: 0,
-        logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`, '所有玩家准备完成，游戏正式开始！'],
-      }
+  const nextPlayer = getNextSetupPlayer(players)
+  if (nextPlayer === -1) {
+    return {
+      ...state, players,
+      phase: 'dice_roll',
+      currentPlayerIndex: state.players.findIndex(p => p.isFirstPlayer),
+      setupPlayerIndex: 0,
+      logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`, '所有玩家准备完成，游戏正式开始！'],
     }
-    const nextPlayer = setupOrder[0]
-    return { ...state, setupPlayerIndex: nextPlayer, logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`] }
   }
 
-  const nextPlayer = setupOrder[currentSetupIdx + 1]
-  return { ...state, setupPlayerIndex: nextPlayer, logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`] }
+  return { ...state, players, setupPlayerIndex: nextPlayer, logs: [...state.logs, `${state.players[pIdx].name} 跳过准备房间`] }
 }
 
 export function rollAllDice(count: number): Die[] {
@@ -520,9 +510,26 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
       players = baseState.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: updatedRes } : p)
     }
   } else if (targetArea === 3) {
-    const created = performAreaAction3(baseState, subAction)
-    const finalDice = removeOneDieFromArea(created.dice, 6)
-    return { ...created, dice: finalDice, currentPlayerIndex: nextIdx }
+    const room = state.availableRooms.find(r => r.id === subAction)
+    const currentPlayer = baseState.players[state.currentPlayerIndex]
+    if (room && !currentPlayer.builtRooms.some(r => r.id === subAction) && currentPlayer.resources.money >= (room.cost.money ?? 0)) {
+      const cost = room.cost.money ?? 0
+      const newRes = { ...currentPlayer.resources, money: currentPlayer.resources.money - cost }
+      players = baseState.players.map((p, i) =>
+        i === state.currentPlayerIndex ? {
+          ...p, resources: newRes,
+          score: p.score + room.victoryPoints,
+          builtRooms: [...p.builtRooms, { ...room, isBuilt: true }],
+        } : p
+      )
+      return {
+        ...state, dice, players,
+        availableRooms: state.availableRooms.filter(r => r.id !== subAction),
+        currentPlayerIndex: nextIdx,
+        logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市建造${room.name}`],
+      }
+    }
+    players = baseState.players
   } else if (targetArea === 4) {
     const empAdv = parseInt(subAction) || 0
     const moneyGain = n - empAdv
