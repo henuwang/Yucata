@@ -1,4 +1,4 @@
-import type { Die, GameState, Player, GuestCard, RoomTile, Resources } from '../types/game'
+import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard } from '../types/game'
 import { createResources } from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
@@ -80,6 +80,7 @@ export function initializeGame(playerCount: number): GameState {
     gameStarted: true,
     emperorScoringCount: 0,
     setupPlayerIndex: 0,
+    pendingPenalty: null,
   }
 }
 
@@ -350,6 +351,117 @@ export function getNextRoller(state: GameState): number {
   return (state.players.findIndex(p => p.isFirstPlayer) + 1) % state.maxPlayers
 }
 
+// --- One-Time Staff Abilities ---
+
+export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard): GameState {
+  const pIdx = state.currentPlayerIndex
+  const player = state.players[pIdx]
+
+  switch (staff.ability) {
+    case 'emperor_advance_3':
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx ? { ...p, emperorTrack: p.emperorTrack + 3 } : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: 皇帝轨道+3`],
+      }
+
+    case 'get_4_coffee':
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx
+            ? { ...p, resources: { ...p.resources, coffee: p.resources.coffee + 4 } }
+            : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: 咖啡+4`],
+      }
+
+    case 'get_one_of_each':
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx
+            ? {
+                ...p,
+                resources: {
+                  ...p.resources,
+                  food: p.resources.food + 1,
+                  cake: p.resources.cake + 1,
+                  wine: p.resources.wine + 1,
+                  coffee: p.resources.coffee + 1,
+                },
+              }
+            : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: 各食物+1`],
+      }
+
+    case 'get_4_strudel':
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx
+            ? { ...p, resources: { ...p.resources, food: p.resources.food + 4 } }
+            : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: 面包+4`],
+      }
+
+    case 'get_4_cake':
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx
+            ? { ...p, resources: { ...p.resources, cake: p.resources.cake + 4 } }
+            : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: 蛋糕+4`],
+      }
+
+    case 'get_4_wine':
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx
+            ? { ...p, resources: { ...p.resources, wine: p.resources.wine + 4 } }
+            : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: 红酒+4`],
+      }
+
+    case 'turn_2_rooms_occupied': {
+      let remaining = 2
+      const newBuiltRooms = player.builtRooms.map(r => {
+        if (remaining > 0 && r.capacity > 0) {
+          remaining--
+          return { ...r, capacity: 0 }
+        }
+        return r
+      })
+      const turnedCount = 2 - remaining
+      return {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === pIdx ? { ...p, builtRooms: newBuiltRooms } : p
+        ),
+        logs: [...state.logs, `${player.name} 触发员工能力: ${turnedCount}个房间翻为已入住`],
+      }
+    }
+
+    case 'complete_guest_from_supply':
+      console.log('能力 complete_guest_from_supply 尚未实现')
+      return {
+        ...state,
+        logs: [...state.logs, `${player.name} 触发员工能力: 从供应区完成客人(尚未实现)`],
+      }
+
+    default:
+      return state
+  }
+}
+
 // --- Action Area Actions ---
 
 export function performAreaAction1(state: GameState, takeCake: number): GameState {
@@ -392,16 +504,34 @@ export function performAreaAction2(state: GameState, takeCoffee: number): GameSt
   }
 }
 
-export function performAreaAction3(state: GameState, roomId: string): GameState {
+export function performAreaAction3(state: GameState, roomId: string, slotRow: number, slotCol: number): GameState {
   const counts = getActionAreaCounts(state.dice)
   if (counts[3] <= 0) return state
 
-  const room = state.availableRooms.find(r => r.id === roomId)
   const player = state.players[state.currentPlayerIndex]
+  const room = state.availableRooms.find(r => r.id === roomId)
   if (!room || player.builtRooms.some(r => r.id === roomId)) return state
+
+  // Validate against hotel board grid
+  const slotIdx = player.roomSlots.findIndex(s => s.row === slotRow && s.col === slotCol)
+  if (slotIdx === -1) return state
+  const slot = player.roomSlots[slotIdx]
+  if (slot.roomId !== null) return state       // slot already occupied
+  if (slot.color !== room.color) return state   // color mismatch
+
+  // Must be adjacent to an already occupied slot
+  const hasAdjacent = player.roomSlots.some(s =>
+    s.roomId &&
+    Math.abs(s.row - slotRow) + Math.abs(s.col - slotCol) === 1
+  )
+  if (!hasAdjacent) return state
+
   const cost = room.cost.money ?? 0
   if (player.resources.money < cost) return state
 
+  const newSlots = player.roomSlots.map((s, i) =>
+    i === slotIdx ? { ...s, roomId: room.id } : s
+  )
   const newRes = { ...player.resources, money: player.resources.money - cost }
   const players = state.players.map((p, i) =>
     i === state.currentPlayerIndex ? {
@@ -409,6 +539,7 @@ export function performAreaAction3(state: GameState, roomId: string): GameState 
       resources: newRes,
       score: p.score + room.victoryPoints,
       builtRooms: [...p.builtRooms, { ...room, isBuilt: true }],
+      roomSlots: newSlots,
     } : p
   )
   const availableRooms = state.availableRooms.filter(r => r.id !== roomId)
@@ -417,7 +548,7 @@ export function performAreaAction3(state: GameState, roomId: string): GameState 
 
   return {
     ...state, dice, players, availableRooms, currentPlayerIndex: nextIdx,
-    logs: [...state.logs, `${player.name} 执行行动区3: 建造${room.name}`],
+    logs: [...state.logs, `${player.name} 执行行动区3: 在(${slotRow},${slotCol})建造${room.name}`],
   }
 }
 
@@ -471,10 +602,16 @@ export function performAreaAction5(state: GameState, staffId: string): GameState
   const dice = removeOneDieFromArea(state.dice, 5)
   const nextIdx = getNextPlayer(state)
 
-  return {
+  const result: GameState = {
     ...state, dice, players, availableStaff, currentPlayerIndex: nextIdx,
     logs: [...state.logs, `${player.name} 执行行动区5: 雇佣${staff.name}，花费${finalCost}(折扣${discount})`],
   }
+
+  if (staff.timing === 'one_time') {
+    return applyOneTimeStaffAbility(result, staff)
+  }
+
+  return result
 }
 
 export function performAreaAction6(state: GameState, targetArea: number, subAction: string): GameState {
@@ -638,15 +775,28 @@ export function canHireStaff(player: Player, staff: { cost: number }): boolean {
   return player.resources.money >= staff.cost
 }
 
-export function hireStaff(player: Player, staffId: string): Player {
+export function hireStaff(state: GameState, staffId: string): GameState {
   const staff = staffCards.find(s => s.id === staffId)
-  if (!staff) return player
-  return {
-    ...player,
-    resources: { ...player.resources, money: player.resources.money - staff.cost },
-    score: player.score + staff.victoryPoints,
-    staffCards: [...player.staffCards, staff],
+  if (!staff) return state
+
+  const players = state.players.map((p, i) =>
+    i === state.currentPlayerIndex
+      ? {
+          ...p,
+          resources: { ...p.resources, money: p.resources.money - staff.cost },
+          score: p.score + staff.victoryPoints,
+          staffCards: [...p.staffCards, staff],
+        }
+      : p
+  )
+
+  const result: GameState = { ...state, players }
+
+  if (staff.timing === 'one_time') {
+    return applyOneTimeStaffAbility(result, staff)
   }
+
+  return result
 }
 
 // --- Emperor Scoring ---
@@ -708,6 +858,7 @@ export function performEmperorScoring(state: GameState): GameState {
   const newCount = scoringIndex + 1
 
   let logs: string[] = [...state.logs, `👑 第${newCount}次皇帝计分！ (回退${regression}格)`]
+  const pendingPlayerIds: string[] = []
   const players = state.players.map(p => {
     const scoreGain = calculateEmperorScore(p.emperorTrack)
     const newTrack = Math.max(0, p.emperorTrack - regression)
@@ -730,7 +881,7 @@ export function performEmperorScoring(state: GameState): GameState {
           updatedPlayer = applyEmperorEffect(updatedPlayer, autoPenalty)
           logs.push(`${p.name} 受到皇帝惩罚: ${autoPenalty.description}`)
         } else {
-          logs.push(`${p.name} 需要选择惩罚: ${tile.penalties.map(t => t.description).join(' 或 ')}`)
+          pendingPlayerIds.push(p.id)
         }
       }
     }
@@ -738,12 +889,158 @@ export function performEmperorScoring(state: GameState): GameState {
     return updatedPlayer
   })
 
-  return { ...state, players, logs, emperorScoringCount: newCount }
+  let pendingPenalty: GameState['pendingPenalty'] = null
+  if (pendingPlayerIds.length > 0) {
+    const tile = state.emperorTiles[scoringIndex]
+    if (tile) {
+      pendingPenalty = {
+        playerId: pendingPlayerIds[0],
+        penalties: tile.penalties,
+        remainingPlayerIds: pendingPlayerIds.slice(1),
+      }
+    }
+  }
+
+  return { ...state, players, logs, emperorScoringCount: newCount, pendingPenalty }
+}
+
+export function resolvePenalty(state: GameState, penaltyIndex: number): GameState {
+  if (!state.pendingPenalty) return state
+
+  const { playerId, penalties, remainingPlayerIds } = state.pendingPenalty
+  if (penaltyIndex < 0 || penaltyIndex >= penalties.length) return state
+
+  const penalty = penalties[penaltyIndex]
+  const playerIndex = state.players.findIndex(p => p.id === playerId)
+  if (playerIndex === -1) return state
+
+  const players = state.players.map((p, i) => {
+    if (i === playerIndex) {
+      return applyEmperorEffect(p, penalty)
+    }
+    return p
+  })
+
+  let logs = [...state.logs]
+  const playerName = state.players[playerIndex].name
+  logs.push(`${playerName} 选择惩罚: ${penalty.description}`)
+
+  let newPendingPenalty: GameState['pendingPenalty'] = null
+  if (remainingPlayerIds.length > 0) {
+    const scoringIndex = state.emperorScoringCount - 1
+    const tile = state.emperorTiles[scoringIndex]
+    if (tile) {
+      newPendingPenalty = {
+        playerId: remainingPlayerIds[0],
+        penalties: tile.penalties,
+        remainingPlayerIds: remainingPlayerIds.slice(1),
+      }
+    }
+  }
+
+  return { ...state, players, logs, pendingPenalty: newPendingPenalty }
+}
+
+// --- End-of-Game Staff Ability ---
+
+function countOccupiedRoomsByColor(player: Player, color: string): number {
+  return player.roomSlots.filter(s => s.color === color && s.roomId).length
+}
+
+function countFilledRows(player: Player): number {
+  const rows = new Map<number, { total: number; filled: number }>()
+  for (const slot of player.roomSlots) {
+    const entry = rows.get(slot.row) ?? { total: 0, filled: 0 }
+    entry.total++
+    if (slot.roomId) entry.filled++
+    rows.set(slot.row, entry)
+  }
+  let count = 0
+  for (const entry of rows.values()) {
+    if (entry.total === entry.filled) count++
+  }
+  return count
+}
+
+function countFilledColumns(player: Player): number {
+  const cols = new Map<number, { total: number; filled: number }>()
+  for (const slot of player.roomSlots) {
+    const entry = cols.get(slot.col) ?? { total: 0, filled: 0 }
+    entry.total++
+    if (slot.roomId) entry.filled++
+    cols.set(slot.col, entry)
+  }
+  let count = 0
+  for (const entry of cols.values()) {
+    if (entry.total === entry.filled) count++
+  }
+  return count
+}
+
+function countFilledGroups(player: Player): number {
+  const groups = new Map<number, { total: number; filled: number }>()
+  for (const slot of player.roomSlots) {
+    const entry = groups.get(slot.groupId) ?? { total: 0, filled: 0 }
+    entry.total++
+    if (slot.roomId) entry.filled++
+    groups.set(slot.groupId, entry)
+  }
+  let count = 0
+  for (const entry of groups.values()) {
+    if (entry.total === entry.filled) count++
+  }
+  return count
+}
+
+function countOccupiedRooms(player: Player): number {
+  return player.roomSlots.filter(s => {
+    if (!s.roomId) return false
+    const builtRoom = player.builtRooms.find(r => r.id === s.roomId)
+    return builtRoom && builtRoom.capacity === 0
+  }).length
+}
+
+function applyEndGameStaffAbility(player: Player, staff: StaffCard, _allPlayers: Player[]): number {
+  switch (staff.ability) {
+    case 'end_vp_per_blue_room':
+      return countOccupiedRoomsByColor(player, 'blue') * 3
+    case 'end_vp_per_staff':
+      return player.staffCards.length * 4
+    case 'end_vp_per_color_set': {
+      const red = countOccupiedRoomsByColor(player, 'red')
+      const yellow = countOccupiedRoomsByColor(player, 'yellow')
+      const blue = countOccupiedRoomsByColor(player, 'blue')
+      return Math.min(red, yellow, blue) * 4
+    }
+    case 'end_vp_per_yellow_room':
+      return countOccupiedRoomsByColor(player, 'yellow') * 3
+    case 'end_vp_per_floor':
+      return countFilledRows(player) * 5
+    case 'end_vp_per_column':
+      return countFilledColumns(player) * 5
+    case 'end_vp_per_politics':
+      return 0
+    case 'end_vp_per_red_room':
+      return countOccupiedRoomsByColor(player, 'red') * 3
+    case 'end_vp_per_room':
+      return player.roomSlots.filter(s => s.roomId).length * 1
+    case 'end_copy_staff':
+      return 0
+    case 'end_double_emperor_vp':
+      return calculateEmperorScore(player.emperorTrack) * 2
+    case 'end_vp_per_group':
+      return countFilledGroups(player) * 2
+    case 'end_vp_per_occupied_room':
+      return countOccupiedRooms(player) * 1
+    default:
+      return 0
+  }
 }
 
 // --- Final Scoring ---
 
 export function performFinalScoring(state: GameState): GameState {
+  const allPlayers = state.players
   const players = state.players.map(p => {
     let finalScore = p.score
     const roomScore = p.builtRooms.reduce((sum, r) => {
@@ -758,6 +1055,12 @@ export function performFinalScoring(state: GameState): GameState {
 
     const waitingPenalty = p.guestWaitingArea.length * 5
     finalScore -= waitingPenalty
+
+    // End-of-game staff abilities
+    const endGameStaffScore = p.staffCards
+      .filter(s => s.timing === 'end_of_game')
+      .reduce((sum, s) => sum + applyEndGameStaffAbility(p, s, allPlayers), 0)
+    finalScore += endGameStaffScore
 
     return { ...p, score: Math.max(0, finalScore) }
   })

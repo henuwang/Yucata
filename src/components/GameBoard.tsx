@@ -3,12 +3,19 @@ import { ActionPanel } from './ActionPanel'
 import { PlayerBar } from './PlayerBar'
 import { PlayerHotel } from './PlayerHotel'
 import { GameLog } from './GameLog'
+import { StaffCardsPanel } from './StaffCardsPanel'
 import { WinnerScreen } from './WinnerScreen'
 import { SetupStaffPhase, SetupGuestPhase, SetupRoomPhase } from './SetupPhase'
+import { PenaltyDialog } from './PenaltyDialog'
 import { useGameStore } from '../store/gameStore'
 
 export function GameBoard() {
   const phase = useGameStore(s => s.phase)
+  const pendingPenalty = useGameStore(s => s.pendingPenalty)
+
+  if (pendingPenalty) {
+    return <PenaltyDialog />
+  }
 
   if (phase === 'game_end') {
     return <WinnerScreen />
@@ -82,6 +89,7 @@ export function GameBoard() {
           <GuestLobby />
           <EmperorTilesPanel />
           <StaffSummary />
+          <StaffCardsPanelWrapper />
         </div>
       </div>
     </div>
@@ -276,4 +284,9 @@ function StaffSummary() {
       </div>
     </div>
   )
+}
+
+function StaffCardsPanelWrapper() {
+  const player = useGameStore(s => s.players[s.currentPlayerIndex])
+  return <StaffCardsPanel player={player} />
 }

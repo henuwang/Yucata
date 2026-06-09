@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { getActionAreaCounts } from '../game-logic/engine'
+import { HotelBoardGrid } from './HotelBoardGrid'
 
 const DIE_COLORS: Record<number, string> = {
   1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71', 5: '#3498db', 6: '#9b59b6',
@@ -152,7 +153,7 @@ export function DicePanel() {
           <AreaSplitDialog area={3} n={n} cfg={cfg!} onExecute={() => setShowRoomPicker(true)} onCancel={() => setSelectedArea(null)} />
         )}
         {selectedArea === 3 && showRoomPicker && (
-          <RoomPicker onSelect={(roomId) => { takeAreaAction(3, roomId); setSelectedArea(null); setShowRoomPicker(false) }} onBack={() => setShowRoomPicker(false)} />
+          <RoomPicker onSelect={(roomId, slotRow, slotCol) => { takeAreaAction(3, roomId, slotRow, slotCol); setSelectedArea(null); setShowRoomPicker(false) }} onBack={() => setShowRoomPicker(false)} />
         )}
 
         {selectedArea === 5 && !showStaffPicker && (
@@ -286,9 +287,54 @@ function AreaSplitDialog({ area, n, cfg, splitValue, setSplitValue, onExecute, o
   )
 }
 
-function RoomPicker({ onSelect, onBack }: { onSelect: (roomId: string) => void; onBack: () => void }) {
-  const rooms = useGameStore.getState().availableRooms
-  const player = useGameStore.getState().players[useGameStore.getState().currentPlayerIndex]
+function RoomPicker({ onSelect, onBack }: { onSelect: (roomId: string, slotRow: number, slotCol: number) => void; onBack: () => void }) {
+  const state = useGameStore.getState()
+  const rooms = state.availableRooms
+  const player = state.players[state.currentPlayerIndex]
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
+
+  const selectedRoom = selectedRoomId ? rooms.find(r => r.id === selectedRoomId) : null
+
+  if (selectedRoom && selectedRoomId) {
+    return (
+      <div style={{
+        background: '#0f0f1a', borderRadius: 10, padding: 16,
+        border: '1px solid #3a3a5a', marginTop: 12,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
+            🏗️ 放置 <span style={{ color: '#f1c40f' }}>{selectedRoom.name}</span>
+          </span>
+          <button onClick={() => setSelectedRoomId(null)}
+            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+            ← 选择其他房间
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10 }}>
+          请在版图上选择空位放置（同色、相邻、💰{selectedRoom.cost.money}元）
+        </div>
+        <HotelBoardGrid
+          player={player}
+          interactive={true}
+          canPlaceSlot={(slot) => {
+            if (slot.roomId !== null) return false
+            if (slot.color !== selectedRoom.color) return false
+            if ((player.resources.money ?? 0) < (selectedRoom.cost.money ?? 0)) return false
+            // Must be adjacent to an already occupied slot
+            return player.roomSlots.some(s =>
+              s.roomId &&
+              Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1
+            )
+          }}
+          onPlaceRoom={(row, col) => onSelect(selectedRoomId, row, col)}
+        />
+        <button onClick={onBack}
+          style={{ marginTop: 8, background: 'none', border: '1px solid #4a4a6a', borderRadius: 6, padding: '6px 16px', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+          ← 返回区选择
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -311,8 +357,9 @@ function RoomPicker({ onSelect, onBack }: { onSelect: (roomId: string) => void; 
         {rooms.map(r => {
           const affordable = (player.resources.money ?? 0) >= (r.cost.money ?? 0)
           return (
-            <div key={r.id} onClick={affordable ? () => onSelect(r.id) : undefined} style={{
-              background: '#2a2a4a', border: `1px solid ${affordable ? '#4a7db5' : '#3a3a3a'}`,
+            <div key={r.id} onClick={affordable ? () => setSelectedRoomId(r.id) : undefined} style={{
+              background: selectedRoomId === r.id ? '#1a2744' : '#2a2a4a',
+              border: `1px solid ${affordable ? '#4a7db5' : '#3a3a3a'}`,
               borderRadius: 8, padding: '6px 10px',
               cursor: affordable ? 'pointer' : 'not-allowed',
               opacity: affordable ? 1 : 0.35, minWidth: 80,

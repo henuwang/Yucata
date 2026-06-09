@@ -170,4 +170,5 @@ export interface GameState {
   gameStarted: boolean
   emperorScoringCount: number
   setupPlayerIndex: number
+  pendingPenalty: { playerId: string; penalties: EmperorEffect[]; remainingPlayerIds: string[] } | null
 }

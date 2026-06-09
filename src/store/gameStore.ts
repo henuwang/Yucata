@@ -25,6 +25,7 @@ import {
   performAreaAction6,
   performEmperorScoring,
   performFinalScoring,
+  resolvePenalty,
   pickSetupGuest,
   placeSetupRoom,
   skipSetupRoom,
@@ -45,12 +46,13 @@ interface GameStore extends GameState {
   rerollDice: () => void
   lockDie: (dieId: number) => void
   confirmDice: () => void
-  takeAreaAction: (areaValue: number, subAction?: string) => void
+  takeAreaAction: (areaValue: number, subAction?: string, slotRow?: number, slotCol?: number) => void
   inviteGuestAction: (guestId: string) => void
   serveWaitingGuest: (guestId: string) => void
   constructRoom: (roomId: string) => void
   hireStaffMember: (staffId: string) => void
   endAction: () => void
+  resolvePenalty: (penaltyIndex: number) => void
   getCurrentPlayer: () => Player
 }
 
@@ -116,7 +118,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ phase: 'dice_draft', logs: [...state.logs, logText] })
   },
 
-  takeAreaAction: (areaValue: number, subAction?: string) => {
+  takeAreaAction: (areaValue: number, subAction?: string, slotRow?: number, slotCol?: number) => {
     const state = get()
     let next: GameState
 
@@ -128,7 +130,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         next = performAreaAction2(state, parseInt(subAction || '0'))
         break
       case 3:
-        next = performAreaAction3(state, subAction || '')
+        next = performAreaAction3(state, subAction || '', slotRow ?? -1, slotCol ?? -1)
         break
       case 4:
         next = performAreaAction4(state, parseInt(subAction || '0'))
@@ -194,12 +196,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const player = state.players[state.currentPlayerIndex]
     if (!staff || !canHireStaff(player, staff)) return
 
-    const updatedPlayer = hireStaff(player, staffId)
-    const players = state.players.map((p, i) =>
-      i === state.currentPlayerIndex ? updatedPlayer : p
-    )
-    const availableStaff = state.availableStaff.filter(s => s.id !== staffId)
-    set({ ...state, players, availableStaff })
+    const newState = hireStaff(state, staffId)
+    const availableStaff = newState.availableStaff.filter(s => s.id !== staffId)
+    set({ ...newState, availableStaff })
   },
 
   endAction: () => {
@@ -218,13 +217,37 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (state.roundNumber >= 7) {
       const withEmperor = performEmperorScoring(state)
+      if (withEmperor.pendingPenalty) {
+        set(withEmperor as unknown as Partial<GameStore>)
+        return
+      }
       const finalState = performFinalScoring(withEmperor)
       set(finalState as unknown as Partial<GameStore>)
     } else {
       const afterScoring = state.roundNumber === 3 || state.roundNumber === 5
         ? performEmperorScoring(state)
         : state
+      if ((afterScoring as GameState).pendingPenalty) {
+        set(afterScoring as unknown as Partial<GameStore>)
+        return
+      }
       set(startNextRound(afterScoring) as unknown as Partial<GameStore>)
+    }
+  },
+
+  resolvePenalty: (penaltyIndex: number) => {
+    const state = get()
+    const next = resolvePenalty(state, penaltyIndex)
+    if (!next.pendingPenalty) {
+      // All penalties resolved, continue flow
+      if (next.roundNumber >= 7) {
+        const finalState = performFinalScoring(next)
+        set(finalState as unknown as Partial<GameStore>)
+      } else {
+        set(startNextRound(next) as unknown as Partial<GameStore>)
+      }
+    } else {
+      set(next as unknown as Partial<GameStore>)
     }
   },
 
