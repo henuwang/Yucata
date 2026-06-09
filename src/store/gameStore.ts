@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { GameState, Player } from '../types/game'
+import type { GameState, Player, Resources } from '../types/game'
 import {
   initializeGame,
   rollAllDice,
@@ -32,6 +32,11 @@ import {
   drawStaffCardsForPlayer,
   pickStaffCardForDraft,
   autoPlaceSetupRoom,
+  placePoliticsMarker,
+  hasExtraAction,
+  canPerformExtraAction,
+  moveKitchenToGuest,
+  checkAndApplyAllGroupBonuses,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -54,6 +59,14 @@ interface GameStore extends GameState {
   endAction: () => void
   resolvePenalty: (penaltyIndex: number) => void
   getCurrentPlayer: () => Player
+  // New actions
+  placePoliticsMarkerAction: (cardId: string) => void
+  performExtraActionAddDie: (areaValue: number) => void
+  performExtraActionMoveKitchen: (guestId: string, resources: Partial<Resources>, count: number) => void
+  performExtraActionPlacePolitics: (cardId: string) => void
+  performExtraActionUseStaffAbility: () => void
+  performExtraActionMoveGuest: () => void
+  checkGroupBonuses: () => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -252,4 +265,145 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   getCurrentPlayer: () => get().players[get().currentPlayerIndex],
+
+  // --- Politics Card Actions ---
+
+  placePoliticsMarkerAction: (cardId: string) => {
+    const state = get()
+    const playerId = state.players[state.currentPlayerIndex].id
+    const next = placePoliticsMarker(state, playerId, cardId)
+    set({ ...next })
+  },
+
+  // --- Extra Actions (Turn Order Tile) ---
+
+  performExtraActionAddDie: (areaValue: number) => {
+    const state = get()
+    const playerId = state.players[state.currentPlayerIndex].id
+    const player = state.players[state.currentPlayerIndex]
+
+    if (!hasExtraAction(state, playerId, 'add_die')) return
+    if (!canPerformExtraAction(state, playerId, 'add_die')) return
+    if (player.resources.money < 1) return
+
+    const updatedPlayer = {
+      ...player,
+      resources: { ...player.resources, money: player.resources.money - 1 },
+      extraActionState: { ...player.extraActionState, addDieUsedThisTurn: true },
+    }
+
+    const updatedActionAreaCounts = { ...getActionAreaCounts(state.dice) }
+    updatedActionAreaCounts[areaValue] = (updatedActionAreaCounts[areaValue] || 0) + 1
+
+    const players = state.players.map((p, i) =>
+      i === state.currentPlayerIndex ? updatedPlayer : p
+    )
+
+    set({
+      ...state,
+      players,
+      logs: [...state.logs, `${player.name} 支付1元使用额外行动: 行动区${areaValue}+1骰子`],
+    })
+  },
+
+  performExtraActionMoveKitchen: (guestId: string, resources: Partial<Resources>, count: number) => {
+    const state = get()
+    const playerId = state.players[state.currentPlayerIndex].id
+
+    if (!hasExtraAction(state, playerId, 'move_kitchen')) return
+
+    const next = moveKitchenToGuest(state, playerId, guestId, resources, count)
+    set({ ...next })
+  },
+
+  performExtraActionPlacePolitics: (cardId: string) => {
+    const state = get()
+    const playerId = state.players[state.currentPlayerIndex].id
+
+    if (!hasExtraAction(state, playerId, 'place_politics')) return
+
+    const next = placePoliticsMarker(state, playerId, cardId)
+    set({ ...next })
+  },
+
+  performExtraActionUseStaffAbility: () => {
+    const state = get()
+    const playerId = state.players[state.currentPlayerIndex].id
+    const player = state.players[state.currentPlayerIndex]
+
+    if (!hasExtraAction(state, playerId, 'use_staff_ability')) return
+
+    // 触发所有 once_per_round 员工能力（将资源加到厨房）
+    let currentLogs = [...state.logs]
+    let updatedPlayer = { ...player }
+
+    for (const staff of player.staffCards) {
+      if (staff.timing === 'once_per_round') {
+        let resourceKey: keyof Resources = 'food'
+        switch (staff.ability) {
+          case 'once_wine':
+            resourceKey = 'wine'
+            break
+          case 'once_strudel':
+            resourceKey = 'food'
+            break
+          case 'once_cake':
+            resourceKey = 'cake'
+            break
+          case 'once_coffee':
+            resourceKey = 'coffee'
+            break
+          default:
+            continue
+        }
+        updatedPlayer = {
+          ...updatedPlayer,
+          kitchen: {
+            ...updatedPlayer.kitchen,
+            [resourceKey]: updatedPlayer.kitchen[resourceKey] + 1,
+          },
+        }
+        currentLogs.push(`${player.name} 使用员工能力: ${resourceKey}+1`)
+      }
+    }
+
+    const players = state.players.map((p, i) =>
+      i === state.currentPlayerIndex ? updatedPlayer : p
+    )
+
+    set({
+      ...state,
+      players,
+      logs: [...currentLogs, `${player.name} 使用每轮员工能力`],
+    })
+  },
+
+  performExtraActionMoveGuest: () => {
+    const state = get()
+    const playerId = state.players[state.currentPlayerIndex].id
+
+    if (!hasExtraAction(state, playerId, 'move_guest')) return
+
+    // 从等待区找第一个满足条件（资源已满足）的客人
+    const player = state.players[state.currentPlayerIndex]
+    const servedGuest = player.guestWaitingArea.find(g => canServeGuest(player, g))
+    if (!servedGuest) return
+
+    const updatedPlayer = serveGuest(player, servedGuest.id)
+    const players = state.players.map((p, i) =>
+      i === state.currentPlayerIndex ? updatedPlayer : p
+    )
+    const newState = { ...state, players }
+
+    // 检查组奖励
+    const withBonuses = checkAndApplyAllGroupBonuses(newState)
+
+    set({ ...withBonuses })
+  },
+
+  checkGroupBonuses: () => {
+    const state = get()
+    const next = checkAndApplyAllGroupBonuses(state)
+    set({ ...next })
+  },
 }))

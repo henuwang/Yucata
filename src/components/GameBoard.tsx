@@ -1,9 +1,13 @@
 import { DicePanel } from './DicePanel'
 import { ActionPanel } from './ActionPanel'
+import { ActionAreaVisual } from './ActionAreaVisual'
 import { PlayerBar } from './PlayerBar'
 import { PlayerHotel } from './PlayerHotel'
 import { GameLog } from './GameLog'
 import { StaffCardsPanel } from './StaffCardsPanel'
+import { PoliticsPanel } from './PoliticsPanel'
+import { TurnOrderPanel } from './TurnOrderPanel'
+import { KitchenPanel } from './KitchenPanel'
 import { WinnerScreen } from './WinnerScreen'
 import { SetupStaffPhase, SetupGuestPhase, SetupRoomPhase } from './SetupPhase'
 import { PenaltyDialog } from './PenaltyDialog'
@@ -79,15 +83,19 @@ export function GameBoard() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 12, marginTop: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <DicePanel />
+          <ActionAreaVisual />
           <ActionPanel />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <PlayerHotel />
             <GameLog />
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', paddingRight: 4 }}>
           <GuestLobby />
           <EmperorTilesPanel />
+          <PoliticsPanel />
+          <TurnOrderPanel />
+          <KitchenPanel />
           <StaffSummary />
           <StaffCardsPanelWrapper />
         </div>

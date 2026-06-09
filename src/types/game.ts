@@ -124,6 +124,80 @@ export interface StaffCard {
   victoryPoints: number
 }
 
+export interface EmperorEffect {
+  type: 'money' | 'score' | 'food' | 'mixed_food' | 'staff_draw_play' | 'free_room' | 'free_room_built' | 'staff_draw_free' | 'score_per_staff' | 'free_staff' | 'remove_guest' | 'remove_built_room' | 'lose_staff' | 'lose_kitchen' | 'advance_emperor'
+  amount?: number
+  description: string
+}
+
+export interface EmperorTile {
+  id: string
+  group: 'A' | 'B' | 'C'
+  reward: EmperorEffect
+  penalties: EmperorEffect[]
+}
+
+// --- Politics Card Types ---
+
+export type PoliticsCondition =
+  | 'money_20'
+  | 'emperor_10'
+  | 'staff_6'
+  | 'room_12'
+  | 'row_2_full'
+  | 'col_2_full'
+  | 'group_6_full'
+  | 'color_all_full'
+  | 'color_3_each'
+  | 'red_4_yellow_3'
+  | 'yellow_4_blue_3'
+  | 'blue_4_red_3'
+
+export interface PoliticsCard {
+  id: string
+  name: string
+  group: 'A' | 'B' | 'C'
+  condition: PoliticsCondition
+  victoryPoints: number
+  description: string
+}
+
+export interface PoliticsMarker {
+  playerId: string
+  cardId: string
+}
+
+// --- Turn Order Types ---
+
+export type ExtraAction =
+  | 'add_die'
+  | 'move_kitchen'
+  | 'place_politics'
+  | 'use_staff_ability'
+  | 'move_guest'
+
+export interface TurnOrderTile {
+  id: string
+  number: number
+  extraActions: ExtraAction[]
+  nameCn: string
+}
+
+export interface PlayerExtraActionState {
+  addDieUsedThisTurn: boolean
+}
+
+// --- Group Bonus Types ---
+
+export interface GroupBonus {
+  groupId: number
+  roomColor: RoomColor
+  size: number
+  reward: EmperorEffect
+}
+
+// --- Player ---
+
 export interface Player {
   id: string
   name: string
@@ -139,20 +213,17 @@ export interface Player {
   draftHand: StaffCard[]
   isFirstPlayer: boolean
   setupRoomCount: number
+  kitchen: Resources
+  turnOrderTileId: string | null
+  politicsMarkers: PoliticsMarker[]
+  extraActionState: PlayerExtraActionState
 }
 
-export interface EmperorEffect {
-  type: 'money' | 'score' | 'food' | 'mixed_food' | 'staff_draw_play' | 'free_room' | 'free_room_built' | 'staff_draw_free' | 'score_per_staff' | 'free_staff' | 'remove_guest' | 'remove_built_room' | 'lose_staff' | 'lose_kitchen'
-  amount?: number
-  description: string
+export function createPlayerExtraActionState(): PlayerExtraActionState {
+  return { addDieUsedThisTurn: false }
 }
 
-export interface EmperorTile {
-  id: string
-  group: 'A' | 'B' | 'C'
-  reward: EmperorEffect
-  penalties: EmperorEffect[]
-}
+// --- GameState ---
 
 export interface GameState {
   phase: GamePhase
@@ -163,6 +234,8 @@ export interface GameState {
   availableRooms: RoomTile[]
   availableStaff: StaffCard[]
   emperorTiles: EmperorTile[]
+  politicsCards: PoliticsCard[]
+  turnOrderTiles: TurnOrderTile[]
   roundNumber: number
   maxPlayers: number
   winner: Player | null
@@ -171,4 +244,11 @@ export interface GameState {
   emperorScoringCount: number
   setupPlayerIndex: number
   pendingPenalty: { playerId: string; penalties: EmperorEffect[]; remainingPlayerIds: string[] } | null
+  groupBonuses: GroupBonus[]
+  completedGroupBonuses: string[]
+}
+
+export function isGroupFullyOccupied(player: Player, groupId: number): boolean {
+  const groupSlots = player.roomSlots.filter(s => s.groupId === groupId)
+  return groupSlots.length > 0 && groupSlots.every(s => s.roomId !== null)
 }

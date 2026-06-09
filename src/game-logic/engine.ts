@@ -1,10 +1,12 @@
-import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard } from '../types/game'
-import { createResources } from '../types/game'
+import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus } from '../types/game'
+import { createResources, createPlayerExtraActionState } from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
 import { staffCards } from '../data/staff'
 import { emperorTiles } from '../data/emperorTiles'
-import { createHotelBoard } from '../data/hotelBoard'
+import { politicsCards } from '../data/politics'
+import { turnOrderTiles } from '../data/turnOrder'
+import { createHotelBoard, GROUP_BONUS_CONFIG } from '../data/hotelBoard'
 
 const DICE_COUNT: Record<number, number> = { 2: 10, 3: 12, 4: 14 }
 const MAX_CAFE_SEATS = 3
@@ -45,6 +47,10 @@ function createPlayer(id: string, name: string, color: string): Player {
     draftHand: [],
     isFirstPlayer: false,
     setupRoomCount: 0,
+    kitchen: createResources({ food: 1, wine: 1, coffee: 1, cake: 1 }),
+    turnOrderTileId: null,
+    politicsMarkers: [],
+    extraActionState: createPlayerExtraActionState(),
   }
 }
 
@@ -63,6 +69,23 @@ export function initializeGame(playerCount: number): GameState {
 
   const diceCount = DICE_COUNT[playerCount] ?? 10
   const selectedEmperorTiles = pickOneFromEachGroup(emperorTiles)
+  const selectedPoliticsCards = pickOneFromEachGroup(politicsCards)
+  const shuffledTurnOrder = shuffle(turnOrderTiles).slice(0, playerCount)
+  const allGroupBonuses: GroupBonus[] = Object.entries(GROUP_BONUS_CONFIG).map(([groupId, config]) => ({
+    id: `group_${groupId}`,
+    groupId: parseInt(groupId),
+    roomColor: config.color,
+    size: config.size,
+    reward: {
+      type: config.reward === 'money' ? 'money' : config.reward === 'emperor' ? 'advance_emperor' : 'score',
+      amount: config.amount,
+      description: config.reward === 'money'
+        ? `获得 ${config.amount} 元`
+        : config.reward === 'emperor'
+          ? `皇帝轨道前进 ${config.amount} 格`
+          : `获得 ${config.amount} 分`,
+    },
+  }))
 
   return {
     phase: 'setup_staff',
@@ -73,6 +96,8 @@ export function initializeGame(playerCount: number): GameState {
     availableRooms: sr,
     availableStaff: ss,
     emperorTiles: selectedEmperorTiles,
+    politicsCards: selectedPoliticsCards,
+    turnOrderTiles: shuffledTurnOrder,
     roundNumber: 1,
     maxPlayers: playerCount,
     winner: null,
@@ -81,6 +106,8 @@ export function initializeGame(playerCount: number): GameState {
     emperorScoringCount: 0,
     setupPlayerIndex: 0,
     pendingPenalty: null,
+    groupBonuses: allGroupBonuses,
+    completedGroupBonuses: [],
   }
 }
 
@@ -1084,7 +1111,12 @@ export function performFinalScoring(state: GameState): GameState {
 
 export function startNextRound(state: GameState): GameState {
   const nextFirst = getNextRoller(state)
-  const players = state.players.map((p, i) => ({ ...p, isFirstPlayer: i === nextFirst }))
+  const players = state.players.map((p, i) => ({
+    ...p,
+    isFirstPlayer: i === nextFirst,
+    // 重置每轮状态
+    extraActionState: createPlayerExtraActionState(),
+  }))
 
   return {
     ...state, phase: 'dice_roll', currentPlayerIndex: nextFirst, players,
@@ -1092,4 +1124,413 @@ export function startNextRound(state: GameState): GameState {
     roundNumber: state.roundNumber + 1,
     logs: [...state.logs, `--- 第${state.roundNumber + 1}轮 ---`],
   }
+}
+
+// ========================================================
+// 1. 政治卡系统 (Politics Cards)
+// ========================================================
+
+/**
+ * 检查玩家是否满足某张政治卡的条件
+ */
+export function checkPoliticsCondition(player: Player, condition: PoliticsCondition): boolean {
+  switch (condition) {
+    case 'money_20':
+      return player.resources.money >= 20
+
+    case 'emperor_10':
+      return player.emperorTrack >= 10
+
+    case 'staff_6':
+      return player.staffCards.length >= 6
+
+    case 'room_12':
+      return player.roomSlots.filter(s => s.roomId).length >= 12
+
+    case 'row_2_full': {
+      const rows = new Map<number, { total: number; filled: number }>()
+      for (const slot of player.roomSlots) {
+        const entry = rows.get(slot.row) ?? { total: 0, filled: 0 }
+        entry.total++
+        if (slot.roomId) entry.filled++
+        rows.set(slot.row, entry)
+      }
+      let fullRows = 0
+      for (const entry of rows.values()) {
+        if (entry.total === entry.filled) fullRows++
+      }
+      return fullRows >= 2
+    }
+
+    case 'col_2_full': {
+      const cols = new Map<number, { total: number; filled: number }>()
+      for (const slot of player.roomSlots) {
+        const entry = cols.get(slot.col) ?? { total: 0, filled: 0 }
+        entry.total++
+        if (slot.roomId) entry.filled++
+        cols.set(slot.col, entry)
+      }
+      let fullCols = 0
+      for (const entry of cols.values()) {
+        if (entry.total === entry.filled) fullCols++
+      }
+      return fullCols >= 2
+    }
+
+    case 'group_6_full': {
+      const groups = new Map<number, { total: number; filled: number }>()
+      for (const slot of player.roomSlots) {
+        const entry = groups.get(slot.groupId) ?? { total: 0, filled: 0 }
+        entry.total++
+        if (slot.roomId) entry.filled++
+        groups.set(slot.groupId, entry)
+      }
+      let fullGroups = 0
+      for (const entry of groups.values()) {
+        if (entry.total === entry.filled) fullGroups++
+      }
+      return fullGroups >= 6
+    }
+
+    case 'color_all_full': {
+      const colors: RoomColor[] = ['red', 'yellow', 'blue']
+      for (const color of colors) {
+        const slots = player.roomSlots.filter(s => s.color === color)
+        if (slots.length > 0 && slots.every(s => s.roomId)) return true
+      }
+      return false
+    }
+
+    case 'color_3_each': {
+      const colors: RoomColor[] = ['red', 'yellow', 'blue']
+      return colors.every(color =>
+        player.roomSlots.filter(s => s.color === color && s.roomId).length >= 3
+      )
+    }
+
+    case 'red_4_yellow_3': {
+      const redCount = player.roomSlots.filter(s => s.color === 'red' && s.roomId).length
+      const yellowCount = player.roomSlots.filter(s => s.color === 'yellow' && s.roomId).length
+      return redCount >= 4 && yellowCount >= 3
+    }
+
+    case 'yellow_4_blue_3': {
+      const yellowCount = player.roomSlots.filter(s => s.color === 'yellow' && s.roomId).length
+      const blueCount = player.roomSlots.filter(s => s.color === 'blue' && s.roomId).length
+      return yellowCount >= 4 && blueCount >= 3
+    }
+
+    case 'blue_4_red_3': {
+      const blueCount = player.roomSlots.filter(s => s.color === 'blue' && s.roomId).length
+      const redCount = player.roomSlots.filter(s => s.color === 'red' && s.roomId).length
+      return blueCount >= 4 && redCount >= 3
+    }
+
+    default:
+      return false
+  }
+}
+
+/**
+ * 获取玩家在政治卡上的标记数量
+ */
+export function getPlayerPoliticsCount(player: Player): number {
+  return player.politicsMarkers.length
+}
+
+/**
+ * 玩家放置圆片到政治卡上
+ */
+export function placePoliticsMarker(state: GameState, playerId: string, cardId: string): GameState {
+  const pIdx = state.players.findIndex(p => p.id === playerId)
+  if (pIdx === -1) return state
+
+  const player = state.players[pIdx]
+  const card = state.politicsCards.find(c => c.id === cardId)
+  if (!card) return state
+
+  // 检查玩家是否已经在这张卡上放置了圆片
+  if (player.politicsMarkers.some(m => m.cardId === cardId)) {
+    return { ...state, logs: [...state.logs, `${player.name} 已经在该政治卡上放置过圆片`] }
+  }
+
+  // 检查玩家是否满足条件
+  if (!checkPoliticsCondition(player, card.condition)) {
+    return { ...state, logs: [...state.logs, `${player.name} 不满足${card.name}的条件`] }
+  }
+
+  const newMarker = { playerId, cardId }
+  const updatedPlayer = {
+    ...player,
+    politicsMarkers: [...player.politicsMarkers, newMarker],
+    score: player.score + card.victoryPoints,
+  }
+
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
+
+  return {
+    ...state, players,
+    logs: [...state.logs, `${player.name} 在${card.name}上放置圆片，获得${card.victoryPoints}分`],
+  }
+}
+
+/**
+ * 终局政治卡得分（每个放置了标记的政治卡得5分）
+ */
+export function calculateEndGamePoliticsScore(player: Player): number {
+  // end_vp_per_politics 员工能力: 每张放置了标记的政治卡获得5分
+  return player.politicsMarkers.length * 5
+}
+
+// ========================================================
+// 2. 回合顺位板 (Turn Order Tiles)
+// ========================================================
+
+/**
+ * 分配顺位板给玩家（按逆时针）
+ */
+export function assignTurnOrderTiles(state: GameState): GameState {
+  const { players, turnOrderTiles } = state
+  const sortedTiles = [...turnOrderTiles].sort((a, b) => a.number - b.number)
+
+  // 按逆时针顺序分配（起始玩家拿1号）
+  const firstPlayerIdx = players.findIndex(p => p.isFirstPlayer)
+  const updatedPlayers = players.map((p, i) => {
+    const tileIdx = (i - firstPlayerIdx + players.length) % players.length
+    const tile = sortedTiles[tileIdx]
+    return { ...p, turnOrderTileId: tile?.id ?? null }
+  })
+
+  return {
+    ...state, players: updatedPlayers,
+    logs: [...state.logs, '已分配回合顺位板'],
+  }
+}
+
+/**
+ * 获取玩家当前的顺位板
+ */
+export function getPlayerTurnOrderTile(state: GameState, playerId: string): TurnOrderTile | null {
+  const player = state.players.find(p => p.id === playerId)
+  if (!player?.turnOrderTileId) return null
+  return state.turnOrderTiles.find(t => t.id === player.turnOrderTileId) ?? null
+}
+
+/**
+ * 检查玩家是否可以执行某种额外行动
+ */
+export function canPerformExtraAction(state: GameState, playerId: string, action: 'add_die'): boolean {
+  if (action === 'add_die') {
+    const player = state.players.find(p => p.id === playerId)
+    if (!player) return false
+    return !player.extraActionState.addDieUsedThisTurn
+  }
+  return true
+}
+
+/**
+ * 检查玩家是否拥有某种额外行动能力
+ */
+export function hasExtraAction(state: GameState, playerId: string, action: string): boolean {
+  const tile = getPlayerTurnOrderTile(state, playerId)
+  if (!tile) return false
+  return tile.extraActions.includes(action as any)
+}
+
+// ========================================================
+// 3. 厨房管理 (Kitchen Management)
+// ========================================================
+
+/**
+ * 从厨房移动食物到客人卡片
+ * 上限最多移动3个（顺位板能力可触发）
+ * 普通支付1元可移动最多3个
+ */
+export function moveKitchenToGuest(
+  state: GameState,
+  playerId: string,
+  guestId: string,
+  resources: Partial<Resources>,
+  count: number
+): GameState {
+  const pIdx = state.players.findIndex(p => p.id === playerId)
+  if (pIdx === -1) return state
+
+  const player = state.players[pIdx]
+  const guest = player.guestWaitingArea.find(g => g.id === guestId)
+  if (!guest) return state
+
+  // 检查移动数量上限
+  if (count > 3) return state
+
+  // 检查厨房是否有足够的资源
+  const food = resources.food ?? 0
+  const wine = resources.wine ?? 0
+  const coffee = resources.coffee ?? 0
+  const cake = resources.cake ?? 0
+
+  if (player.kitchen.food < food ||
+      player.kitchen.wine < wine ||
+      player.kitchen.coffee < coffee ||
+      player.kitchen.cake < cake) {
+    return state
+  }
+
+  // 从厨房扣除
+  const newKitchen = {
+    food: player.kitchen.food - food,
+    wine: player.kitchen.wine - wine,
+    coffee: player.kitchen.coffee - coffee,
+    cake: player.kitchen.cake - cake,
+    money: player.kitchen.money,
+  }
+
+  // 将食物加到玩家资源（用于完成客人订单）
+  const newResources = {
+    ...player.resources,
+    food: player.resources.food + food,
+    wine: player.resources.wine + wine,
+    coffee: player.resources.coffee + coffee,
+    cake: player.resources.cake + cake,
+  }
+
+  const updatedPlayer = {
+    ...player,
+    kitchen: newKitchen,
+    resources: newResources,
+  }
+
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
+
+  return {
+    ...state, players,
+    logs: [...state.logs, `${player.name} 从厨房移动了 ${count} 个餐饮到${guest.name}`],
+  }
+}
+
+/**
+ * 检查玩家是否能从厨房给客人提供食物
+ */
+export function canMoveKitchenToGuest(player: Player, guest: GuestCard): boolean {
+  for (const req of guest.requirements) {
+    const kitchenAmount = player.kitchen[req.type] ?? 0
+    const resourceAmount = player.resources[req.type] ?? 0
+    // 检查厨房 + 当前资源是否足够满足需求
+    if (kitchenAmount + resourceAmount < req.amount) return false
+  }
+  return true
+}
+
+// ========================================================
+// 4. 房间组奖励 (Room Group Bonuses)
+// ========================================================
+
+/**
+ * 检查某个组是否已完全入住
+ */
+export function checkGroupFullyOccupied(player: Player, groupId: number): boolean {
+  const groupSlots = player.roomSlots.filter(s => s.groupId === groupId)
+  return groupSlots.length > 0 && groupSlots.every(s => s.roomId !== null)
+}
+
+/**
+ * 获取玩家已完成但尚未领取奖励的组
+ */
+export function getUnclaimedGroupBonuses(player: Player, completedGroupBonuses: string[]): number[] {
+  const completedGroups: number[] = []
+  const groups = new Set(player.roomSlots.map(s => s.groupId))
+  for (const groupId of groups) {
+    const bonusId = `group_${groupId}`
+    if (!completedGroupBonuses.includes(bonusId) && checkGroupFullyOccupied(player, groupId)) {
+      completedGroups.push(groupId)
+    }
+  }
+  return completedGroups
+}
+
+/**
+ * 应用组奖励
+ */
+export function applyGroupBonus(state: GameState, groupId: number): GameState {
+  const pIdx = state.currentPlayerIndex
+  if (pIdx === -1) return state
+
+  const player = state.players[pIdx]
+  const config = GROUP_BONUS_CONFIG[groupId]
+  if (!config) return state
+
+  const bonusId = `group_${groupId}`
+  if (state.completedGroupBonuses.includes(bonusId)) return state
+
+  let updatedPlayer = { ...player }
+  let logMsg = ''
+
+  switch (config.reward) {
+    case 'money':
+      updatedPlayer = {
+        ...updatedPlayer,
+        resources: { ...updatedPlayer.resources, money: updatedPlayer.resources.money + config.amount },
+      }
+      logMsg = `${player.name} 完成组${groupId}(${config.color})奖励: 获得 ${config.amount} 元`
+      break
+    case 'emperor':
+      updatedPlayer = {
+        ...updatedPlayer,
+        emperorTrack: updatedPlayer.emperorTrack + config.amount,
+      }
+      logMsg = `${player.name} 完成组${groupId}(${config.color})奖励: 皇帝轨道前进 ${config.amount} 格`
+      break
+    case 'score':
+      updatedPlayer = {
+        ...updatedPlayer,
+        score: updatedPlayer.score + config.amount,
+      }
+      logMsg = `${player.name} 完成组${groupId}(${config.color})奖励: 获得 ${config.amount} 分`
+      break
+  }
+
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
+
+  return {
+    ...state,
+    players,
+    completedGroupBonuses: [...state.completedGroupBonuses, bonusId],
+    logs: [...state.logs, logMsg],
+  }
+}
+
+/**
+ * 检查并应用所有组的奖励（在客人入住房间时触发）
+ */
+export function checkAndApplyAllGroupBonuses(state: GameState): GameState {
+  const pIdx = state.currentPlayerIndex
+  const player = state.players[pIdx]
+
+  const unclaimedGroups = getUnclaimedGroupBonuses(player, state.completedGroupBonuses)
+  let currentState = state
+
+  for (const groupId of unclaimedGroups) {
+    currentState = applyGroupBonus(currentState, groupId)
+  }
+
+  return currentState
+}
+
+/**
+ * 终局时计算所有已完成的组奖励（总计分用）
+ */
+export function calculateEndGameGroupScore(player: Player): number {
+  // end_vp_per_group 员工能力: 每个完全住满的房间组获得2分
+  const groups = new Map<number, { total: number; filled: number }>()
+  for (const slot of player.roomSlots) {
+    const entry = groups.get(slot.groupId) ?? { total: 0, filled: 0 }
+    entry.total++
+    if (slot.roomId) entry.filled++
+    groups.set(slot.groupId, entry)
+  }
+  let fullGroups = 0
+  for (const entry of groups.values()) {
+    if (entry.total === entry.filled) fullGroups++
+  }
+  return fullGroups * 2
 }
