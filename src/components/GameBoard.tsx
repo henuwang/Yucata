@@ -161,8 +161,6 @@ function TurnIndicator() {
 
   if (!player) return null
 
-  const remainingDice = Object.values(areaDice).reduce((s, c) => s + c, 0)
-
   const turnOrderTiles = [
     { id: 'tile-1', numbers: [9, 4, 7] },
     { id: 'tile-2', numbers: [8, 5, 1] },
@@ -216,9 +214,34 @@ function TurnIndicator() {
           </div>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#888' }}>
-        <span>{'🎲 剩余 ' + remainingDice + ' 颗骰子'}</span>
-        <div style={{ display: 'flex', gap: 3 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+        {/* Dice distribution by value */}
+        {[1, 2, 3, 4, 5, 6].map(val => {
+          const count = areaDice[val] || 0
+          const dieFaces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+          const dieColors: Record<number, string> = {
+            1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71', 5: '#3498db', 6: '#9b59b6',
+          }
+          return (
+            <div key={val} style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              opacity: count > 0 ? 1 : 0.3,
+            }}>
+              <span style={{ fontSize: 16, color: dieColors[val], lineHeight: 1 }}>
+                {dieFaces[val - 1]}
+              </span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: '#ccc', marginTop: 1,
+                background: 'rgba(255,255,255,0.08)',
+                borderRadius: 6, padding: '0 5px', minWidth: 14, textAlign: 'center',
+              }}>
+                {count}
+              </span>
+            </div>
+          )
+        })}
+        {/* Action circles */}
+        <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
           {[0, 1].map(idx => (
             <div key={idx} style={{
               width: 14, height: 14, borderRadius: '50%',
