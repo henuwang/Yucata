@@ -311,6 +311,10 @@ function SplitDialog({
 // Invite Guest Tab
 // ════════════════════════════════════════
 
+const REQ_ICONS: Record<string, string> = {
+  food: '🥖', wine: '🍷', coffee: '☕', cake: '🍰', money: '💰',
+}
+
 function InviteGuestTab({ availableGuests, player, inviteGuestAction }: {
   availableGuests: any[]; player: any; inviteGuestAction: (id: string) => void
 }) {
@@ -327,7 +331,7 @@ function InviteGuestTab({ availableGuests, player, inviteGuestAction }: {
           return (
             <div key={g.id} onClick={() => { if (canAfford && hasRoom) inviteGuestAction(g.id) }} style={{
               background: c.bg, border: '1px solid ' + (canAfford && hasRoom ? c.border : '#3a3a3a'),
-              borderRadius: 8, padding: 8, minWidth: 100,
+              borderRadius: 8, padding: 8, minWidth: 110,
               cursor: canAfford && hasRoom ? 'pointer' : 'not-allowed',
               opacity: canAfford && hasRoom ? 1 : 0.4,
             }}>
@@ -337,6 +341,25 @@ function InviteGuestTab({ availableGuests, player, inviteGuestAction }: {
               </div>
               <div style={{ fontSize: 10, color: '#888' }}>{c.label}</div>
               <div style={{ fontSize: 10, color: '#f39c12' }}>{'💰' + g.guestCost}</div>
+              {/* Guest requirements */}
+              {g.requirements && g.requirements.length > 0 && (
+                <div style={{ display: 'flex', gap: 2, marginTop: 3, flexWrap: 'wrap' }}>
+                  {g.requirements.map((r: any, i: number) => (
+                    <span key={i} style={{
+                      fontSize: 9, background: 'rgba(255,255,255,0.08)',
+                      borderRadius: 3, padding: '1px 4px', color: '#aaa',
+                    }}>
+                      {(REQ_ICONS[r.type] || '') + r.type}×{r.amount}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Bonus reward */}
+              {g.bonusResource && g.bonusAmount && (
+                <div style={{ fontSize: 9, color: '#2ecc71', marginTop: 2 }}>
+                  🎁 {(REQ_ICONS[g.bonusResource] || '') + g.bonusResource}+{g.bonusAmount}
+                </div>
+              )}
             </div>
           )
         })}
