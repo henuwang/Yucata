@@ -1,5 +1,10 @@
 import { useGameStore } from '../store/gameStore'
 
+const DIE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+const DIE_COLORS: Record<number, string> = {
+  1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71', 5: '#3498db', 6: '#9b59b6',
+}
+
 export function DicePanel() {
   const phase = useGameStore(s => s.phase)
   const dice = useGameStore(s => s.dice)
@@ -87,34 +92,32 @@ export function DicePanel() {
       <div style={{
         background: '#1a1a2e', borderRadius: 12, padding: 16, border: '1px solid #2a2a4a',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <h3 style={{ margin: 0, color: '#e0e0e0', fontSize: 15, fontWeight: 600 }}>
+        <div style={{ marginBottom: 10 }}>
+          <h3 style={{ margin: 0, color: '#e0e0e0', fontSize: 15, fontWeight: 600, textAlign: 'center' }}>
             🎲 骰子分布
           </h3>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
-            {[1, 2, 3, 4, 5, 6].map(area => {
-              const dieFaces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
-              const dieColors: Record<number, string> = {
-                1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71', 5: '#3498db', 6: '#9b59b6',
-              }
-              return (
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'flex-end' }}>
+          {[1, 2, 3, 4, 5, 6].map(area => {
+            const count = areaDice[area] ?? 0
+            return (
               <div key={area} style={{
-                background: (areaDice[area] ?? 0) > 0 ? '#2a3a2a' : '#1a1a2e',
-                border: `1px solid ${(areaDice[area] ?? 0) > 0 ? '#2ecc71' : '#2a2a4a'}`,
-                borderRadius: 6, padding: '3px 8px',
+                background: count > 0 ? '#2a3a2a' : '#1a1a2e',
+                border: `1px solid ${count > 0 ? '#2ecc71' : '#2a2a4a'}`,
+                borderRadius: 8, padding: '6px 12px',
                 fontSize: 11, color: '#ccc', textAlign: 'center',
-                opacity: (areaDice[area] ?? 0) > 0 ? 1 : 0.4,
+                opacity: count > 0 ? 1 : 0.4,
+                minWidth: 40,
               }}>
-                <div style={{ fontSize: 14, color: dieColors[area], lineHeight: 1 }}>
-                  {dieFaces[area - 1]}
+                <div style={{ fontSize: 20, color: DIE_COLORS[area], lineHeight: 1 }}>
+                  {DIE_FACES[area - 1]}
                 </div>
-                <div style={{ fontWeight: 600, fontSize: 12, color: (areaDice[area] ?? 0) > 0 ? '#f1c40f' : '#555' }}>
-                  {areaDice[area] ?? 0}
+                <div style={{ fontWeight: 700, fontSize: 14, color: count > 0 ? '#f1c40f' : '#555', marginTop: 2 }}>
+                  {count}
                 </div>
               </div>
-              )
-            })}
-          </div>
+            )
+          })}
         </div>
         {trashDiceCount > 0 && (
           <div style={{ fontSize: 11, color: '#888' }}>
