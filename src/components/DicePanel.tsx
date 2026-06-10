@@ -91,8 +91,13 @@ export function DicePanel() {
           <h3 style={{ margin: 0, color: '#e0e0e0', fontSize: 15, fontWeight: 600 }}>
             🎲 骰子分布
           </h3>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[1, 2, 3, 4, 5, 6].map(area => (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+            {[1, 2, 3, 4, 5, 6].map(area => {
+              const dieFaces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+              const dieColors: Record<number, string> = {
+                1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71', 5: '#3498db', 6: '#9b59b6',
+              }
+              return (
               <div key={area} style={{
                 background: (areaDice[area] ?? 0) > 0 ? '#2a3a2a' : '#1a1a2e',
                 border: `1px solid ${(areaDice[area] ?? 0) > 0 ? '#2ecc71' : '#2a2a4a'}`,
@@ -100,12 +105,15 @@ export function DicePanel() {
                 fontSize: 11, color: '#ccc', textAlign: 'center',
                 opacity: (areaDice[area] ?? 0) > 0 ? 1 : 0.4,
               }}>
-                <div style={{ fontSize: 9, color: '#888' }}>区{area}</div>
-                <div style={{ fontWeight: 600, color: (areaDice[area] ?? 0) > 0 ? '#f1c40f' : '#555' }}>
+                <div style={{ fontSize: 14, color: dieColors[area], lineHeight: 1 }}>
+                  {dieFaces[area - 1]}
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 12, color: (areaDice[area] ?? 0) > 0 ? '#f1c40f' : '#555' }}>
                   {areaDice[area] ?? 0}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
         {trashDiceCount > 0 && (

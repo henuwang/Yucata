@@ -10,8 +10,6 @@ const AREA_CONFIG: Record<number, { name: string; desc: string; color: string; i
   6: { name: '黑市', desc: '花1元模拟其他区', color: '#9b59b6', icon: '🕶️' },
 }
 
-const DIE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
-
 const GUEST_COLORS: Record<string, { bg: string; border: string; label: string }> = {
   blue: { bg: '#1a2744', border: '#4a7db5', label: '贵族' },
   yellow: { bg: '#3a3520', border: '#d4a843', label: '艺术家/政客' },
@@ -107,7 +105,7 @@ function ActionAreaTab({
       </div>
 
       {/* Area Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
         {[1, 2, 3, 4, 5, 6].map(area => {
           const cfg = AREA_CONFIG[area]
           const count = areaCounts[area] ?? 0
@@ -116,26 +114,20 @@ function ActionAreaTab({
             <div key={area}
               onClick={enabled ? () => { setSelected(area); setInRoomPicker(false); setInStaffPicker(false); setSplitVal(0); setWildArea(1); setWildSplit(0) } : undefined}
               style={{
-                background: enabled ? '#252545' : '#1a1a2e',
+                background: enabled ? '#2a2a4a' : '#1a1a2e',
                 border: '1px solid ' + (enabled ? cfg.color : '#2a2a4a'),
-                borderRadius: 10, padding: '12px 14px', textAlign: 'center',
+                borderRadius: 8, padding: 10, textAlign: 'center',
                 cursor: enabled ? 'pointer' : 'not-allowed',
                 opacity: enabled ? 1 : 0.3,
                 transition: 'all 0.15s',
               }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                <span style={{ fontSize: 26 }}>{cfg.icon}</span>
-                <span style={{ fontSize: 28, color: cfg.color, lineHeight: 1 }}>
-                  {DIE_FACES[area - 1]}
-                </span>
-              </div>
+              <div style={{ fontSize: 20 }}>{cfg.icon}</div>
               <div style={{
-                background: cfg.color, color: '#fff', borderRadius: 12,
-                display: 'inline-block', padding: '2px 14px', fontSize: 16, fontWeight: 'bold',
-                marginTop: 6, minWidth: 24,
-              }}>×{count}</div>
-              <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 12, marginTop: 6 }}>{cfg.name}</div>
-              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>{cfg.desc}</div>
+                background: cfg.color, color: '#fff', borderRadius: 10,
+                display: 'inline-block', padding: '1px 8px', fontSize: 13, fontWeight: 'bold',
+                marginTop: 2,
+              }}>{count}</div>
+              <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 11, marginTop: 4 }}>{cfg.name}</div>
             </div>
           )
         })}
