@@ -1,98 +1,41 @@
 import { useGameStore } from '../store/gameStore'
-import type { ExtraAction } from '../types/game'
-
-const EXTRA_ACTION_INFO: Record<ExtraAction, { label: string; desc: string; icon: string }> = {
-  add_die: { label: '+1骰子', desc: '选择一个行动区，视为多1颗骰子', icon: '🎲' },
-  move_kitchen: { label: '厨房移动', desc: '从厨房移动最多3个餐饮到客人卡', icon: '🍽️' },
-  place_politics: { label: '放置圆片', desc: '在有条件的政治卡上放置圆片', icon: '📌' },
-  use_staff_ability: { label: '员工能力', desc: '使用每轮一次的员工能力', icon: '👔' },
-  move_guest: { label: '客人入住', desc: '移动订单完成的客人到空房', icon: '🚪' },
-}
+import { turnOrderTiles } from '../data/turnOrder'
 
 export function TurnOrderPanel() {
   const players = useGameStore(s => s.players)
-  const currentPlayerIndex = useGameStore(s => s.currentPlayerIndex)
-  const turnOrderTiles = useGameStore(s => s.turnOrderTiles)
-  const phase = useGameStore(s => s.phase)
-  const currentPlayer = players[currentPlayerIndex]
+  const currentIdx = useGameStore(s => s.currentPlayerIndex)
+  const isDiceRollPhase = useGameStore(s => s.phase === 'dice_roll')
+  const dice = useGameStore(s => s.dice)
+  const hasRolled = dice.some(d => d.value > 0)
 
-  const isActionPhase = phase === 'action'
+  const sortedPlayers = [...players].sort((a, b) => {
+    const tileA = turnOrderTiles.find(t => t.id === a.turnOrderTileId)
+    const tileB = turnOrderTiles.find(t => t.id === b.turnOrderTileId)
+    if (!tileA || !tileB) return 0
+    return tileA.number - tileB.number
+  })
 
   return (
     <div style={{
-      background: '#1a1a2e',
-      borderRadius: 12,
-      padding: 16,
+      background: '#1a1a2e', borderRadius: 12, padding: 12,
       border: '1px solid #2a2a4a',
     }}>
-      <h3 style={{ margin: '0 0 12px 0', color: '#e0e0e0', fontSize: 15 }}>
-        顺位板
-      </h3>
-
+      <div style={{ fontSize: 12, color: '#888', marginBottom: 8, fontWeight: 600 }}>
+        🏅 顺位板 {isDiceRollPhase && !hasRolled && '(等待掷骰)'}
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {turnOrderTiles.map((tile) => {
-          const player = players.find(p => p.turnOrderTileId === tile.id)
-          const isCurrent = player?.id === currentPlayer.id
-
+        {sortedPlayers.map(p => {
+          const tile = turnOrderTiles.find(t => t.id === p.turnOrderTileId)
+          if (!tile) return null
           return (
-            <div key={tile.id} style={{
-              background: isCurrent ? '#1a2744' : '#2a2a4a',
-              border: `1px solid ${isCurrent ? '#4a7db5' : '#4a4a6a'}`,
-              borderRadius: 8,
-              padding: '8px 10px',
-              opacity: player ? 1 : 0.5,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{
-                    width: 22, height: 22, borderRadius: 11,
-                    background: isCurrent ? '#4a7db5' : '#4a4a6a',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', fontWeight: 'bold', fontSize: 11,
-                  }}>
-                    {tile.number}
-                  </div>
-                  <span style={{
-                    color: isCurrent ? '#e0e0e0' : '#888',
-                    fontSize: 12, fontWeight: isCurrent ? 600 : 400,
-                  }}>
-                    {tile.nameCn}
-                  </span>
-                </div>
-                {player && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ color: player.color, fontSize: 12 }}>●</span>
-                    <span style={{ color: isCurrent ? '#e0e0e0' : '#666', fontSize: 11 }}>
-                      {player.name}
-                    </span>
-                  </div>
-                )}
-                {!player && (
-                  <span style={{ color: '#555', fontSize: 10 }}>未分配</span>
-                )}
-              </div>
-
-              {/* Extra actions */}
-              {tile.extraActions.length > 0 && (
-                <div style={{ marginTop: 6 }}>
-                  <div style={{ fontSize: 9, color: '#666', marginBottom: 4 }}>额外行动:</div>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {tile.extraActions.map(action => {
-                      const info = EXTRA_ACTION_INFO[action]
-                      const canAct = isCurrent && isActionPhase
-                      return (
-                        <ExtraActionButton
-                          key={action}
-                          label={`${info?.icon || ''} ${info?.label || action}`}
-                          desc={info?.desc || ''}
-                          canAct={canAct}
-                        />
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <TurnOrderTile
+              key={p.id}
+              player={p}
+              tile={tile}
+              isActive={p.id === players[currentIdx]?.id}
+              isDone={p.actionsPerformed >= 2}
+              hasPassed={p.hasPassedInCycle && p.actionsPerformed < 2}
+            />
           )
         })}
       </div>
@@ -100,46 +43,68 @@ export function TurnOrderPanel() {
   )
 }
 
-function ExtraActionButton({
-  label, desc, canAct,
+function TurnOrderTile({
+  player, tile, isActive, isDone, hasPassed,
 }: {
-  label: string
-  desc: string
-  canAct: boolean
+  player: { id: string; name: string; color: string; actionsPerformed: number; hasPassedInCycle: boolean }
+  tile: { number: number; nameCn: string }
+  isActive: boolean
+  isDone: boolean
+  hasPassed: boolean
 }) {
-  const handleClick = () => {
-    const store = useGameStore.getState()
-    const player = store.players[store.currentPlayerIndex]
-    const { logs, ...rest } = store
-    useGameStore.setState({
-      ...rest,
-      logs: [...logs, `${player.name} 使用了顺位板额外行动: ${label}`],
-    } as any)
-  }
+  const actionText = isDone
+    ? '已完成'
+    : hasPassed
+      ? '已跳过'
+      : `已行动 ${player.actionsPerformed}/2`
+
+  const bgColor = isActive
+    ? '#1a2744'
+    : isDone
+      ? '#1a1a2e'
+      : hasPassed
+        ? '#2a1a1a'
+        : '#0f0f1a'
+
+  const borderColor = isActive
+    ? '#4a7db5'
+    : isDone
+      ? '#2a2a4a'
+      : hasPassed
+        ? '#5a2a2a'
+        : '#2a2a4a'
 
   return (
-    <button
-      onClick={canAct ? handleClick : undefined}
-      title={desc}
-      style={{
-        padding: '3px 8px',
-        borderRadius: 4,
-        border: `1px solid ${canAct ? '#4a7db5' : '#3a3a3a'}`,
-        background: canAct ? '#1a2744' : '#1a1a2e',
-        color: canAct ? '#ccc' : '#555',
-        cursor: canAct ? 'pointer' : 'not-allowed',
-        fontSize: 10,
-        transition: 'all 0.15s',
-        whiteSpace: 'nowrap',
-      }}
-      onMouseEnter={e => {
-        if (canAct) e.currentTarget.style.background = '#2a3a5a'
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.background = canAct ? '#1a2744' : '#1a1a2e'
-      }}
-    >
-      {label}
-    </button>
+    <div style={{
+      padding: '8px 12px', borderRadius: 8,
+      background: bgColor,
+      border: `1px solid ${borderColor}`,
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 8,
+          background: '#2a2a4a', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontWeight: 'bold', fontSize: 16, color: '#f1c40f',
+          border: '1px solid #4a4a6a',
+        }}>
+          {tile.number}
+        </div>
+        <div>
+          <div style={{ fontSize: 12, color: '#e0e0e0', fontWeight: 600 }}>
+            {player.name}
+          </div>
+          <div style={{ fontSize: 10, color: '#888' }}>
+            {tile.nameCn}
+          </div>
+        </div>
+      </div>
+      <div style={{
+        fontSize: 10, color: isDone ? '#666' : hasPassed ? '#e74c3c' : '#4a7db5',
+        fontWeight: 600,
+      }}>
+        {actionText}
+      </div>
+    </div>
   )
 }

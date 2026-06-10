@@ -19,7 +19,7 @@ export function ActionAreaVisual() {
   const phase = useGameStore(s => s.phase)
   const areaCounts = getActionAreaCounts(dice)
 
-  if (phase !== 'dice_roll' && phase !== 'dice_draft') return null
+  if (phase !== 'dice_roll') return null
 
   return (
     <div style={{
@@ -36,7 +36,7 @@ export function ActionAreaVisual() {
         {[1, 2, 3, 4, 5, 6].map(area => {
           const cfg = AREA_CONFIG[area]
           const count = areaCounts[area]
-          const isActive = count > 0 && phase === 'dice_draft'
+          const isActive = count > 0 && phase === 'dice_roll'
 
           return (
             <div key={area} style={{

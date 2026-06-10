@@ -57,7 +57,7 @@ export type StaffAbility =
   | 'once_cake'
   | 'once_coffee'
 
-export type GamePhase = 'setup_staff' | 'setup_guest' | 'setup_room' | 'dice_roll' | 'dice_draft' | 'action' | 'game_end'
+export type GamePhase = 'setup_staff' | 'setup_guest' | 'setup_room' | 'dice_roll' | 'action' | 'game_end'
 
 export interface Resources {
   food: number
@@ -74,7 +74,6 @@ export function createResources(initial?: Partial<Resources>): Resources {
 export interface Die {
   id: number
   value: number
-  kept: boolean
   used: boolean
 }
 
@@ -196,6 +195,11 @@ export interface GroupBonus {
   reward: EmperorEffect
 }
 
+export interface TurnOrderCovered {
+  first: boolean
+  second: boolean
+}
+
 // --- Player ---
 
 export interface Player {
@@ -215,8 +219,13 @@ export interface Player {
   setupRoomCount: number
   kitchen: Resources
   turnOrderTileId: string | null
+  turnOrderCovered: TurnOrderCovered
   politicsMarkers: PoliticsMarker[]
   extraActionState: PlayerExtraActionState
+  /** 本轮已执行行动次数（0/1/2） */
+  actionsPerformed: number
+  /** 当前重掷周期中是否已跳过 */
+  hasPassedInCycle: boolean
 }
 
 export function createPlayerExtraActionState(): PlayerExtraActionState {
@@ -230,6 +239,8 @@ export interface GameState {
   currentPlayerIndex: number
   players: Player[]
   dice: Die[]
+  /** 每个行动区（1-6）当前的骰子数量 */
+  areaDice: Record<number, number>
   availableGuests: GuestCard[]
   availableRooms: RoomTile[]
   availableStaff: StaffCard[]
@@ -246,6 +257,8 @@ export interface GameState {
   pendingPenalty: { playerId: string; penalties: EmperorEffect[]; remainingPlayerIds: string[] } | null
   groupBonuses: GroupBonus[]
   completedGroupBonuses: string[]
+  /** 垃圾桶中的骰子数量 */
+  trashDiceCount: number
 }
 
 export function isGroupFullyOccupied(player: Player, groupId: number): boolean {

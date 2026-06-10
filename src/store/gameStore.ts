@@ -3,27 +3,21 @@ import type { GameState, Player, Resources } from '../types/game'
 import {
   initializeGame,
   rollAllDice,
-  rerollUnkeptDice,
-  toggleKeepDie,
+  autoSortDiceToAreas,
   inviteGuest,
   serveGuest,
+  serveGuestWithRoom,
   buildRoom,
   hireStaff,
-  getNextPlayer,
+  getNextActionPlayer,
   startNextRound,
   canBuildRoom,
   canHireStaff,
   canServeGuest,
   canInviteGuest,
+  performTurnAction,
+  skipTurn,
   getActionAreaCounts,
-  getTotalUnusedDice,
-  performAreaAction1,
-  performAreaAction2,
-  performAreaAction3,
-  performAreaAction4,
-  performAreaAction5,
-  performAreaAction6,
-  performEmperorScoring,
   performFinalScoring,
   resolvePenalty,
   pickSetupGuest,
@@ -37,6 +31,7 @@ import {
   canPerformExtraAction,
   moveKitchenToGuest,
   checkAndApplyAllGroupBonuses,
+  rerollRemainingDice,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -48,15 +43,13 @@ interface GameStore extends GameState {
   autoPlaceRoom: (slotRow: number, slotCol: number) => void
   skipSetupRoom: () => void
   rollDice: () => void
-  rerollDice: () => void
-  lockDie: (dieId: number) => void
-  confirmDice: () => void
   takeAreaAction: (areaValue: number, subAction?: string, slotRow?: number, slotCol?: number) => void
+  skipAction: () => void
+  removeDieAndReroll: () => void
   inviteGuestAction: (guestId: string) => void
-  serveWaitingGuest: (guestId: string) => void
+  serveWaitingGuest: (guestId: string, slotRow?: number, slotCol?: number) => void
   constructRoom: (roomId: string) => void
   hireStaffMember: (staffId: string) => void
-  endAction: () => void
   resolvePenalty: (penaltyIndex: number) => void
   getCurrentPlayer: () => Player
   // New actions
@@ -107,64 +100,57 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ ...next })
   },
 
+  // 任务1：骰子流程重构 - 掷骰后自动分类进入行动区
   rollDice: () => {
     const state = get()
     const dice = rollAllDice(state.dice.length)
-    set({ dice, logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 掷出了骰子`] })
+    const areaDice = autoSortDiceToAreas(dice)
+
+    // 找到顺位数字最小的玩家作为第一个行动玩家
+    const tempState = { ...state, dice, areaDice }
+    const firstActionPlayer = getNextActionPlayer(tempState)
+
+    const logs = [
+      ...state.logs,
+      `${state.players.find(p => {
+        const tile = state.turnOrderTiles.find(t => t.id === p.turnOrderTileId)
+        return tile?.number === 1
+      })?.name || state.players[0].name} 掷出了骰子`,
+      `骰子分布: 区1(${areaDice[1]}) 区2(${areaDice[2]}) 区3(${areaDice[3]}) 区4(${areaDice[4]}) 区5(${areaDice[5]}) 区6(${areaDice[6]})`,
+    ]
+
+    if (firstActionPlayer >= 0) {
+      logs.push(`轮到 ${state.players[firstActionPlayer].name} 行动`)
+    }
+
+    set({
+      dice,
+      areaDice,
+      phase: 'action',
+      currentPlayerIndex: firstActionPlayer >= 0 ? firstActionPlayer : 0,
+      logs,
+    })
   },
 
-  rerollDice: () => {
-    const state = get()
-    const dice = rerollUnkeptDice(state.dice)
-    set({ dice, logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 重掷了未锁定的骰子`] })
-  },
-
-  lockDie: (dieId: number) => {
-    const dice = toggleKeepDie(get().dice, dieId)
-    set({ dice })
-  },
-
-  confirmDice: () => {
-    const state = get()
-    const counts = getActionAreaCounts(state.dice)
-    const logText = `开始行动区分配: 区1(${counts[1]}) 区2(${counts[2]}) 区3(${counts[3]}) 区4(${counts[4]}) 区5(${counts[5]}) 区6(${counts[6]})`
-    set({ phase: 'dice_draft', logs: [...state.logs, logText] })
-  },
-
+  // 任务2：使用新的 performTurnAction 处理行动
   takeAreaAction: (areaValue: number, subAction?: string, slotRow?: number, slotCol?: number) => {
     const state = get()
-    let next: GameState
+    const next = performTurnAction(state, areaValue, subAction, slotRow, slotCol)
+    set({ ...next })
+  },
 
-    switch (areaValue) {
-      case 1:
-        next = performAreaAction1(state, parseInt(subAction || '0'))
-        break
-      case 2:
-        next = performAreaAction2(state, parseInt(subAction || '0'))
-        break
-      case 3:
-        next = performAreaAction3(state, subAction || '', slotRow ?? -1, slotCol ?? -1)
-        break
-      case 4:
-        next = performAreaAction4(state, parseInt(subAction || '0'))
-        break
-      case 5:
-        next = performAreaAction5(state, subAction || '')
-        break
-      case 6: {
-        const parts = (subAction || '').split('|')
-        next = performAreaAction6(state, parseInt(parts[0] || '0'), parts[1] || '')
-        break
-      }
-      default:
-        return
-    }
+  // 任务3：跳过行动
+  skipAction: () => {
+    const state = get()
+    const next = skipTurn(state)
+    set({ ...next })
+  },
 
-    if (getTotalUnusedDice(next.dice) === 0) {
-      set({ ...next, phase: 'action', logs: [...next.logs, '所有骰子已用完，进入行动阶段'] })
-    } else {
-      set({ ...next })
-    }
+  // 移除1颗骰子并重掷
+  removeDieAndReroll: () => {
+    const state = get()
+    const next = rerollRemainingDice(state)
+    set({ ...next })
   },
 
   inviteGuestAction: (guestId: string) => {
@@ -176,17 +162,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ ...next })
   },
 
-  serveWaitingGuest: (guestId: string) => {
+  // 任务4：客人服务 - 支持指定房间
+  serveWaitingGuest: (guestId: string, slotRow?: number, slotCol?: number) => {
     const state = get()
     const player = state.players[state.currentPlayerIndex]
     const guest = player.guestWaitingArea.find(g => g.id === guestId)
     if (!guest || !canServeGuest(player, guest)) return
 
-    const updatedPlayer = serveGuest(player, guestId)
+    let updatedPlayer: Player
+    if (slotRow !== undefined && slotCol !== undefined) {
+      // 指定房间入住
+      updatedPlayer = serveGuestWithRoom(player, guestId, slotRow, slotCol)
+    } else {
+      // 自动分配房间
+      updatedPlayer = serveGuest(player, guestId)
+    }
+
+    if (updatedPlayer === player) return // 服务失败
+
     const players = state.players.map((p, i) =>
       i === state.currentPlayerIndex ? updatedPlayer : p
     )
-    set({ ...state, players })
+
+    const newState = { ...state, players }
+
+    // 检查组奖励
+    const withBonuses = checkAndApplyAllGroupBonuses(newState)
+
+    set({ ...withBonuses })
   },
 
   constructRoom: (roomId: string) => {
@@ -212,40 +215,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const newState = hireStaff(state, staffId)
     const availableStaff = newState.availableStaff.filter(s => s.id !== staffId)
     set({ ...newState, availableStaff })
-  },
-
-  endAction: () => {
-    const state = get()
-    const nextIdx = getNextPlayer(state)
-    const isRoundEnd = nextIdx === state.players.findIndex(p => p.isFirstPlayer)
-
-    if (!isRoundEnd) {
-      set({
-        phase: 'action',
-        currentPlayerIndex: nextIdx,
-        logs: [...state.logs, `${state.players[nextIdx].name} 的行动阶段`],
-      })
-      return
-    }
-
-    if (state.roundNumber >= 7) {
-      const withEmperor = performEmperorScoring(state)
-      if (withEmperor.pendingPenalty) {
-        set(withEmperor as unknown as Partial<GameStore>)
-        return
-      }
-      const finalState = performFinalScoring(withEmperor)
-      set(finalState as unknown as Partial<GameStore>)
-    } else {
-      const afterScoring = state.roundNumber === 3 || state.roundNumber === 5
-        ? performEmperorScoring(state)
-        : state
-      if ((afterScoring as GameState).pendingPenalty) {
-        set(afterScoring as unknown as Partial<GameStore>)
-        return
-      }
-      set(startNextRound(afterScoring) as unknown as Partial<GameStore>)
-    }
   },
 
   resolvePenalty: (penaltyIndex: number) => {
@@ -302,6 +271,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       ...state,
       players,
+      areaDice: { ...state.areaDice, [areaValue]: (state.areaDice[areaValue] || 0) + 1 },
       logs: [...state.logs, `${player.name} 支付1元使用额外行动: 行动区${areaValue}+1骰子`],
     })
   },
