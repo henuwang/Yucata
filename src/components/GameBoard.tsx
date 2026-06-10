@@ -12,6 +12,10 @@ import { WinnerScreen } from './WinnerScreen'
 import { SetupStaffPhase, SetupGuestPhase, SetupRoomPhase } from './SetupPhase'
 import { PenaltyDialog } from './PenaltyDialog'
 
+const REQ_ICONS: Record<string, string> = {
+  food: '🥖', wine: '🍷', coffee: '☕', cake: '🍰', money: '💰',
+}
+
 export function GameBoard() {
   const phase = useGameStore(s => s.phase)
   const pendingPenalty = useGameStore(s => s.pendingPenalty)
@@ -281,9 +285,9 @@ function GuestLobby() {
                     <div style={{ color: '#f1c40f', fontSize: 10 }}>+{g.victoryPoints}</div>
                     <div style={{ fontSize: 9, color: '#f39c12' }}>{'💰' + g.guestCost}</div>
                     <div style={{ display: 'flex', gap: 2, marginTop: 1 }}>
-                      {g.requirements.map((r, i) => (
+                      {g.requirements.map((r: any, i: number) => (
                         <span key={i} style={{ fontSize: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 2, padding: '0 3px', color: '#888' }}>
-                          {r.type}x{r.amount}
+                          {(REQ_ICONS[r.type] || '?')}×{r.amount}
                         </span>
                       ))}
                     </div>

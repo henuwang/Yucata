@@ -68,11 +68,11 @@ export function PoliticsPanel() {
               </div>
 
               <div style={{ fontSize: 10, color: '#ccc', marginBottom: 2 }}>
-                <span style={{ color: '#888' }}>条件: </span>{card.condition}
+                <span style={{ color: '#888' }}>条件: </span>{card.description}
               </div>
 
               <div style={{ fontSize: 10, color: '#2ecc71', marginBottom: 6 }}>
-                <span style={{ color: '#888' }}>奖励: </span>{card.description}
+                <span style={{ color: '#888' }}>奖励: </span>+{card.victoryPoints}分
               </div>
 
               {/* Markers */}

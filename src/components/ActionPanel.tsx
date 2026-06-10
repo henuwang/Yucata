@@ -349,7 +349,7 @@ function InviteGuestTab({ availableGuests, player, inviteGuestAction }: {
                       fontSize: 9, background: 'rgba(255,255,255,0.08)',
                       borderRadius: 3, padding: '1px 4px', color: '#aaa',
                     }}>
-                      {(REQ_ICONS[r.type] || '') + r.type}×{r.amount}
+                      {REQ_ICONS[r.type] || '?'}×{r.amount}
                     </span>
                   ))}
                 </div>
@@ -357,7 +357,7 @@ function InviteGuestTab({ availableGuests, player, inviteGuestAction }: {
               {/* Bonus reward */}
               {g.bonusResource && g.bonusAmount && (
                 <div style={{ fontSize: 9, color: '#2ecc71', marginTop: 2 }}>
-                  🎁 {(REQ_ICONS[g.bonusResource] || '') + g.bonusResource}+{g.bonusAmount}
+                  🎁 {REQ_ICONS[g.bonusResource] || '?'}+{g.bonusAmount}
                 </div>
               )}
             </div>
@@ -426,7 +426,7 @@ function ServeGuestTab() {
                     padding: '1px 4px',
                     color: (player.resources[r.type as keyof typeof player.resources] ?? 0) >= r.amount ? '#2ecc71' : '#e74c3c',
                   }}>
-                    {r.type}x{r.amount}
+                    {REQ_ICONS[r.type] || '?'}×{r.amount}
                   </span>
                 ))}
               </div>

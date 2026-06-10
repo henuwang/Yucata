@@ -1,6 +1,10 @@
 import { useGameStore } from '../store/gameStore'
 import { HotelBoardGrid } from './HotelBoardGrid'
 
+const REQ_ICONS: Record<string, string> = {
+  food: '🥖', wine: '🍷', coffee: '☕', cake: '🍰', money: '💰',
+}
+
 export function SetupStaffPhase() {
   const phase = useGameStore(s => s.phase)
   const setupPlayerIndex = useGameStore(s => s.setupPlayerIndex)
@@ -217,7 +221,7 @@ function SetupGuestCard({ guest, playerColor }: { guest: any; playerColor: strin
         <span style={guestColorStyle(guest.color)}>{guest.color === 'blue' ? '贵族' : guest.color === 'yellow' ? '艺术家' : guest.color === 'red' ? '市民' : '旅客'}</span>
       </div>
       <div style={{ fontSize: 11, color: '#888' }}>
-        需求: {guest.requirements.map((r: any) => `${r.type}×${r.amount}`).join(' ')}
+        需求: {guest.requirements.map((r: any) => `${REQ_ICONS[r.type] || '?'}×${r.amount}`).join(' ')}
       </div>
       <div style={{ fontSize: 11, color: '#2ecc71' }}>
         VP: {guest.victoryPoints} | 费用: {guest.guestCost}
