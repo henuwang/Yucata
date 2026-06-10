@@ -1,8 +1,15 @@
 import { useGameStore } from '../store/gameStore'
 
+const DIE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+const DIE_COLORS: Record<number, string> = {
+  1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71', 5: '#3498db', 6: '#9b59b6',
+}
+
 export function PlayerBar() {
   const players = useGameStore(s => s.players)
   const currentIdx = useGameStore(s => s.currentPlayerIndex)
+  const areaDice = useGameStore(s => s.areaDice)
+  const isDiceActive = useGameStore(s => s.phase === 'action' || s.phase === 'dice_roll')
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -33,6 +40,31 @@ export function PlayerBar() {
             <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
               <span>👑皇{p.emperorTrack} | 客人{p.guestWaitingArea.length} | 已招待{p.guestServedArea.length} | 房间{p.builtRooms.length} | 员工{p.staffCards.length}</span>
             </div>
+            {/* Dice distribution */}
+            {isDiceActive && (
+              <div style={{ display: 'flex', gap: 4, marginTop: 6, paddingTop: 6, borderTop: '1px solid #2a2a4a' }}>
+                {[1, 2, 3, 4, 5, 6].map(val => {
+                  const count = areaDice[val] || 0
+                  return (
+                    <div key={val} style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      opacity: count > 0 ? 1 : 0.3,
+                    }}>
+                      <span style={{ fontSize: 14, color: DIE_COLORS[val], lineHeight: 1 }}>
+                        {DIE_FACES[val - 1]}
+                      </span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, color: '#ccc',
+                        background: 'rgba(255,255,255,0.06)',
+                        borderRadius: 4, padding: '0 4px', minWidth: 12, textAlign: 'center',
+                      }}>
+                        {count}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )
       })}
