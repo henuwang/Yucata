@@ -32,6 +32,7 @@ import {
   moveKitchenToGuest,
   checkAndApplyAllGroupBonuses,
   rerollRemainingDice,
+  allocatePendingResources,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -60,6 +61,9 @@ interface GameStore extends GameState {
   performExtraActionUseStaffAbility: () => void
   performExtraActionMoveGuest: () => void
   checkGroupBonuses: () => void
+  // 资源分配（资源流转系统）
+  allocateResourcesToKitchen: () => void
+  allocateResourcesToGuest: (guestId: string) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -374,6 +378,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
   checkGroupBonuses: () => {
     const state = get()
     const next = checkAndApplyAllGroupBonuses(state)
+    set({ ...next })
+  },
+
+  // --- 资源分配（资源流转系统） ---
+
+  allocateResourcesToKitchen: () => {
+    const state = get()
+    if (!state.pendingAllocation) return
+    const next = allocatePendingResources(state, 'kitchen')
+    set({ ...next })
+  },
+
+  allocateResourcesToGuest: (guestId: string) => {
+    const state = get()
+    if (!state.pendingAllocation) return
+    const next = allocatePendingResources(state, 'guest', guestId)
     set({ ...next })
   },
 }))

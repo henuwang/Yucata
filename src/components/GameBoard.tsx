@@ -174,17 +174,10 @@ function TurnIndicator() {
   ]
 
   const tile = turnOrderTiles.find(t => t.id === player.turnOrderTileId)
-  let visibleNumbers: number[] = []
-  if (tile) {
-    visibleNumbers = tile.numbers.filter((_, i) => {
-      if (i === 0 && player.turnOrderCovered.first) return false
-      if (i === 1 && player.turnOrderCovered.second) return false
-      return true
-    })
-  }
+  const visibleNumbers = tile ? tile.numbers.slice(player.coveredSlots) : []
 
   const pColor = PLAYER_COLORS[player.color] || '#888'
-  const actionLabel = player.actionsPerformed === 0 ? '第一次行动' : '第二次行动'
+  const actionLabel = player.coveredSlots === 0 ? '第一次行动' : '第二次行动'
 
   return (
     <div style={{
@@ -220,7 +213,7 @@ function TurnIndicator() {
           {[0, 1].map(idx => (
             <div key={idx} style={{
               width: 14, height: 14, borderRadius: '50%',
-              background: player.actionsPerformed > idx ? '#2ecc71' : '#2a2a4a',
+              background: player.coveredSlots > idx ? '#2ecc71' : '#2a2a4a',
               border: '1px solid #4a4a6a',
             }} />
           ))}

@@ -91,6 +91,8 @@ export interface GuestCard {
   bonusResource?: ResourceType
   bonusAmount?: number
   guestCost: number
+  /** 已放在该客人卡上的资源（用于满足需求） */
+  placedResources?: Partial<Resources>
 }
 
 export interface HotelBoardSlot {
@@ -195,11 +197,6 @@ export interface GroupBonus {
   reward: EmperorEffect
 }
 
-export interface TurnOrderCovered {
-  first: boolean
-  second: boolean
-}
-
 // --- Player ---
 
 export interface Player {
@@ -214,17 +211,19 @@ export interface Player {
   builtRooms: RoomTile[]
   roomSlots: HotelBoardSlot[]
   staffCards: StaffCard[]
+  /** 设置阶段轮选用的手牌，还未选完的牌 */
   draftHand: StaffCard[]
+  /** 设置阶段从右手玩家传来的牌 */
+  passingHand: StaffCard[]
   isFirstPlayer: boolean
   setupRoomCount: number
   kitchen: Resources
   turnOrderTileId: string | null
-  turnOrderCovered: TurnOrderCovered
   politicsMarkers: PoliticsMarker[]
   extraActionState: PlayerExtraActionState
-  /** 本轮已执行行动次数（0/1/2） */
-  actionsPerformed: number
-  /** 当前重掷周期中是否已跳过 */
+  /** 顺位板上已被遮盖的槽位数（0/1/2），每次行动或跳过时遮盖1个槽位 */
+  coveredSlots: number
+  /** 当前重掷周期中是否已跳过（跳过不遮盖槽位，仅标记本轮不再行动） */
   hasPassedInCycle: boolean
 }
 
@@ -254,11 +253,17 @@ export interface GameState {
   gameStarted: boolean
   emperorScoringCount: number
   setupPlayerIndex: number
+  /** 员工卡轮选方向：+1 = 顺时针（左手边） */
+  setupPassingDirection: number
+  /** 当前轮选轮次（0-5） */
+  setupStaffRound: number
   pendingPenalty: { playerId: string; penalties: EmperorEffect[]; remainingPlayerIds: string[] } | null
   groupBonuses: GroupBonus[]
   completedGroupBonuses: string[]
   /** 垃圾桶中的骰子数量 */
   trashDiceCount: number
+  /** 待分配的资源（来自行动区1/2/6，玩家需要分配到厨房或客人卡） */
+  pendingAllocation: Partial<Resources> | null
 }
 
 export function isGroupFullyOccupied(player: Player, groupId: number): boolean {

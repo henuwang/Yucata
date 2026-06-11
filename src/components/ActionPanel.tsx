@@ -101,7 +101,7 @@ function ActionAreaTab({
   return (
     <div>
       <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
-        {cp.name}: {cp.actionsPerformed}/2 次行动 | 剩余 {remainingDice} 颗骰子
+        {cp.name}: {cp.coveredSlots}/2 次行动 | 剩余 {remainingDice} 颗骰子
       </div>
 
       {/* Area Grid */}
@@ -109,7 +109,7 @@ function ActionAreaTab({
         {[1, 2, 3, 4, 5, 6].map(area => {
           const cfg = AREA_CONFIG[area]
           const count = areaCounts[area] ?? 0
-          const enabled = count > 0 && cp.actionsPerformed < 2 && !cp.hasPassedInCycle
+          const enabled = count > 0 && cp.coveredSlots < 2 && !cp.hasPassedInCycle
           return (
             <div key={area}
               onClick={enabled ? () => { setSelected(area); setInRoomPicker(false); setInStaffPicker(false); setSplitVal(0); setWildArea(1); setWildSplit(0) } : undefined}
@@ -134,7 +134,7 @@ function ActionAreaTab({
       </div>
 
       {/* Skip button */}
-      {cp.actionsPerformed < 2 && !cp.hasPassedInCycle && (
+      {cp.coveredSlots < 2 && !cp.hasPassedInCycle && (
         <div style={{ marginTop: 8 }}>
           <button onClick={() => { skipAction(); setSelected(null) }}
             style={{

@@ -33,8 +33,8 @@ export function TurnOrderPanel() {
               player={p}
               tile={tile}
               isActive={p.id === players[currentIdx]?.id}
-              isDone={p.actionsPerformed >= 2}
-              hasPassed={p.hasPassedInCycle && p.actionsPerformed < 2}
+              isDone={p.coveredSlots >= 2}
+              hasPassed={p.hasPassedInCycle && p.coveredSlots < 2}
             />
           )
         })}
@@ -46,7 +46,7 @@ export function TurnOrderPanel() {
 function TurnOrderTile({
   player, tile, isActive, isDone, hasPassed,
 }: {
-  player: { id: string; name: string; color: string; actionsPerformed: number; hasPassedInCycle: boolean }
+  player: { id: string; name: string; color: string; coveredSlots: number; hasPassedInCycle: boolean }
   tile: { number: number; nameCn: string }
   isActive: boolean
   isDone: boolean
@@ -56,7 +56,7 @@ function TurnOrderTile({
     ? '已完成'
     : hasPassed
       ? '已跳过'
-      : `已行动 ${player.actionsPerformed}/2`
+      : `已行动 ${player.coveredSlots}/2`
 
   const bgColor = isActive
     ? '#1a2744'

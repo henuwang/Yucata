@@ -45,14 +45,14 @@ function createPlayer(id: string, name: string, color: string): Player {
     roomSlots: createHotelBoard(),
     staffCards: [],
     draftHand: [],
+    passingHand: [],
     isFirstPlayer: false,
     setupRoomCount: 0,
     kitchen: createResources({ food: 1, wine: 1, coffee: 1, cake: 1 }),
     turnOrderTileId: null,
-    turnOrderCovered: { first: false, second: false },
     politicsMarkers: [],
     extraActionState: createPlayerExtraActionState(),
-    actionsPerformed: 0,
+    coveredSlots: 0,
     hasPassedInCycle: false,
   }
 }
@@ -109,10 +109,13 @@ export function initializeGame(playerCount: number): GameState {
     gameStarted: true,
     emperorScoringCount: 0,
     setupPlayerIndex: 0,
+    setupPassingDirection: 1,
+    setupStaffRound: 0,
     pendingPenalty: null,
     groupBonuses: allGroupBonuses,
     completedGroupBonuses: [],
     trashDiceCount: 0,
+    pendingAllocation: null,
   }
 }
 
@@ -123,18 +126,22 @@ export function drawStaffCardsForPlayer(state: GameState): GameState {
   const cardsPerPlayer = 6
   const totalNeeded = state.maxPlayers * cardsPerPlayer
   const drawn = deck.slice(0, totalNeeded)
-  const remaining = deck.slice(totalNeeded)
 
   const players = state.players.map((p, i) => ({
     ...p,
     draftHand: drawn.slice(i * cardsPerPlayer, (i + 1) * cardsPerPlayer),
     staffCards: [],
+    passingHand: [],
   }))
 
   return {
-    ...state, players, availableStaff: remaining.slice(0, 4),
+    ...state,
+    players,
+    availableStaff: deck.slice(totalNeeded, totalNeeded + 4),
     setupPlayerIndex: 0,
-    logs: [...state.logs, `每位玩家获得6张员工卡，${state.players[0].name}先选择`],
+    setupPassingDirection: 1,
+    setupStaffRound: 0,
+    logs: [...state.logs, `每位玩家获得${cardsPerPlayer}张员工卡，${state.players[0].name}先选择`],
   }
 }
 
@@ -146,6 +153,7 @@ export function pickStaffCardForDraft(state: GameState, cardId: string): GameSta
   const cardIdx = player.draftHand.findIndex(c => c.id === cardId)
   if (cardIdx === -1) return state
 
+  // 1. 当前玩家从 draftHand 中选择1张保留到 staffCards
   const picked = player.draftHand[cardIdx]
   const newDraftHand = player.draftHand.filter((_, i) => i !== cardIdx)
   const newStaffCards = [...player.staffCards, picked]
@@ -153,20 +161,64 @@ export function pickStaffCardForDraft(state: GameState, cardId: string): GameSta
   const updatedPlayer = { ...player, draftHand: newDraftHand, staffCards: newStaffCards }
   const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
 
-  const allDone = players.every(p => p.staffCards.length >= 6)
+  const nextIdx = (pIdx + 1) % state.maxPlayers
 
-  if (allDone) {
+  // 所有玩家都已在本轮选完
+  if (nextIdx === 0) {
+    // 2. 将每人剩余的 draftHand 传给左手边（顺时针）玩家的 passingHand
+    //    玩家 i 接收来自玩家 (i-1) 的剩余牌
+    const afterPass = players.map((p, i) => {
+      const fromPlayerIdx = (i - 1 + state.maxPlayers) % state.maxPlayers
+      return {
+        ...p,
+        passingHand: players[fromPlayerIdx].draftHand,
+        draftHand: [],
+      }
+    })
+
+    // 3. 将每个人的 passingHand 设为新的 draftHand
+    const swappedPlayers = afterPass.map(p => ({
+      ...p,
+      draftHand: p.passingHand,
+      passingHand: [],
+    }))
+
+    const newRound = state.setupStaffRound + 1
+
+    // 6轮后所有玩家都有6张员工卡
+    if (newRound >= 6) {
+      return {
+        ...state,
+        players: swappedPlayers,
+        phase: 'setup_guest',
+        setupPlayerIndex: (state.maxPlayers - 1),
+        setupStaffRound: 0,
+        logs: [
+          ...state.logs,
+          `${player.name} 选择了${picked.name}`,
+          '所有玩家已选完员工卡，开始邀请客人',
+        ],
+      }
+    }
+
     return {
-      ...state, players,
-      phase: 'setup_guest',
-      setupPlayerIndex: (state.maxPlayers - 1),
-      logs: [...state.logs, `${player.name} 选择了${picked.name}`, '所有玩家已选完员工卡，开始邀请客人'],
+      ...state,
+      players: swappedPlayers,
+      setupPlayerIndex: 0,
+      setupStaffRound: newRound,
+      logs: [
+        ...state.logs,
+        `${player.name} 选择了${picked.name}`,
+        `第${newRound + 1}轮选牌完成，剩余卡牌传给左手玩家`,
+        `第${newRound + 1}轮开始，轮到 ${state.players[0].name} 选择`,
+      ],
     }
   }
 
-  const nextIdx = (pIdx + 1) % state.maxPlayers
+  // 还有玩家未选，轮到下一个玩家
   return {
-    ...state, players,
+    ...state,
+    players,
     setupPlayerIndex: nextIdx,
     logs: [...state.logs, `${player.name} 选择了${picked.name}`, `轮到 ${state.players[nextIdx].name} 选择`],
   }
@@ -192,7 +244,7 @@ export function pickSetupGuest(state: GameState, guestId: string): GameState {
   if (guestIdx === -1) return state
   const guest = state.availableGuests[guestIdx]
 
-  const newGuests = [...player.guestWaitingArea, guest]
+  const newGuests = [...player.guestWaitingArea, { ...guest, placedResources: {} }]
   const players = state.players.map((p, i) =>
     i === pIdx ? { ...p, guestWaitingArea: newGuests } : p
   )
@@ -398,7 +450,7 @@ export function getNextActionPlayer(state: GameState): number {
 
   for (let i = 0; i < state.players.length; i++) {
     const p = state.players[i]
-    if (p.actionsPerformed >= 2 || p.hasPassedInCycle) continue
+    if (p.coveredSlots >= 2 || p.hasPassedInCycle) continue
 
     const tile = state.turnOrderTiles.find(t => t.id === p.turnOrderTileId)
     if (!tile) continue
@@ -416,14 +468,14 @@ export function getNextActionPlayer(state: GameState): number {
  * 检查所有玩家在当前重掷周期是否都已通过（跳过或已完成2次行动）
  */
 export function canAllPlayersPass(state: GameState): boolean {
-  return state.players.every(p => p.actionsPerformed >= 2 || p.hasPassedInCycle)
+  return state.players.every(p => p.coveredSlots >= 2 || p.hasPassedInCycle)
 }
 
 /**
  * 检查所有玩家是否都已执行完2次行动（本轮结束条件之一）
  */
 export function allPlayersDoneTwoActions(state: GameState): boolean {
-  return state.players.every(p => p.actionsPerformed >= 2)
+  return state.players.every(p => p.coveredSlots >= 2)
 }
 
 /**
@@ -451,7 +503,7 @@ export function skipTurn(state: GameState): GameState {
   const pIdx = state.currentPlayerIndex
   const player = state.players[pIdx]
 
-  if (player.actionsPerformed >= 2 || player.hasPassedInCycle) return state
+  if (player.coveredSlots >= 2 || player.hasPassedInCycle) return state
 
   const updatedPlayer = { ...player, hasPassedInCycle: true }
   const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
@@ -598,16 +650,14 @@ export function performAreaAction1(state: GameState, takeCake: number): GameStat
   if (cake > food) return state
   if (cake < 0 || food < 0) return state
 
-  const player = state.players[state.currentPlayerIndex]
-  const newRes = { ...player.resources, food: player.resources.food + food, cake: player.resources.cake + cake }
-  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: newRes } : p)
-
+  // 不直接加到 player.resources，而是设置 pendingAllocation
   const afterRemove = removeOneFromAreaDice(state, 1)
   const dice = removeOneDieFromArea(state.dice, 1)
 
   return {
-    ...afterRemove, dice, players,
-    logs: [...state.logs, `${player.name} 执行行动区1: 获得食物×${food} 蛋糕×${cake}`],
+    ...afterRemove, dice,
+    pendingAllocation: { food, cake },
+    logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 执行行动区1: 获得食物×${food} 蛋糕×${cake}，请分配`],
   }
 }
 
@@ -626,16 +676,14 @@ export function performAreaAction2(state: GameState, takeCoffee: number): GameSt
   if (coffee > wine) return state
   if (coffee < 0 || wine < 0) return state
 
-  const player = state.players[state.currentPlayerIndex]
-  const newRes = { ...player.resources, wine: player.resources.wine + wine, coffee: player.resources.coffee + coffee }
-  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: newRes } : p)
-
+  // 不直接加到 player.resources，而是设置 pendingAllocation
   const afterRemove = removeOneFromAreaDice(state, 2)
   const dice = removeOneDieFromArea(state.dice, 2)
 
   return {
-    ...afterRemove, dice, players,
-    logs: [...state.logs, `${player.name} 执行行动区2: 获得红酒×${wine} 咖啡×${coffee}`],
+    ...afterRemove, dice,
+    pendingAllocation: { wine, coffee },
+    logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 执行行动区2: 获得红酒×${wine} 咖啡×${coffee}，请分配`],
   }
 }
 
@@ -781,21 +829,28 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
     const takeCount = Math.min(parseInt(subAction) || 0, n)
     const isCoffee = targetArea === 2
 
-    const currentPlayer = baseState.players[state.currentPlayerIndex]
     if (isCoffee) {
       const coffee = Math.min(takeCount, n)
       const wine = n - coffee
       // 任务5约束
       if (coffee > wine) return state
-      const updatedRes = { ...currentPlayer.resources, wine: currentPlayer.resources.wine + wine, coffee: currentPlayer.resources.coffee + coffee }
-      players = baseState.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: updatedRes } : p)
+      return {
+        ...afterRemove, dice,
+        players: baseState.players,
+        pendingAllocation: { wine, coffee },
+        logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市模拟行动区2，请分配资源`],
+      }
     } else {
       const cake = Math.min(takeCount, n)
       const food = n - cake
       // 任务5约束
       if (cake > food) return state
-      const updatedRes = { ...currentPlayer.resources, food: currentPlayer.resources.food + food, cake: currentPlayer.resources.cake + cake }
-      players = baseState.players.map((p, i) => i === state.currentPlayerIndex ? { ...p, resources: updatedRes } : p)
+      return {
+        ...afterRemove, dice,
+        players: baseState.players,
+        pendingAllocation: { food, cake },
+        logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市模拟行动区1，请分配资源`],
+      }
     }
   } else if (targetArea === 3) {
     const room = state.availableRooms.find(r => r.id === subAction)
@@ -877,13 +932,19 @@ export function performTurnAction(
     return state // 行动无效
   }
 
+  // 资源流转系统：如果行动区1/2产生了待分配资源，不前进到下一玩家
+  // 玩家必须先分配资源（到厨房或客人卡），作为本次行动的一部分
+  if (afterAction.pendingAllocation) {
+    return afterAction
+  }
+
   const pIdx = state.currentPlayerIndex
   const player = afterAction.players[pIdx]
 
   // 更新玩家行动计数
   const updatedPlayer = {
     ...player,
-    actionsPerformed: player.actionsPerformed + 1,
+    coveredSlots: player.coveredSlots + 1,
   }
   const players = afterAction.players.map((p, i) => i === pIdx ? updatedPlayer : p)
 
@@ -891,6 +952,93 @@ export function performTurnAction(
 
   // 检查组奖励
   const withBonuses = checkAndApplyAllGroupBonuses(withPlayerUpdate)
+
+  // 前进到下一个玩家
+  return advanceToNextPlayer(withBonuses)
+}
+
+// --- 资源分配 (Resource Allocation) ---
+
+/**
+ * 将待分配资源（pendingAllocation）分配到厨房或客人卡上
+ * 分配完成后，完成本次行动（coveredSlots、组奖励、下一玩家）
+ */
+export function allocatePendingResources(
+  state: GameState,
+  target: 'kitchen' | 'guest',
+  guestId?: string
+): GameState {
+  if (!state.pendingAllocation) return state
+
+  const pIdx = state.currentPlayerIndex
+  const player = state.players[pIdx]
+  let updatedPlayer = { ...player }
+
+  if (target === 'kitchen') {
+    // 分配到厨房
+    updatedPlayer = {
+      ...updatedPlayer,
+      kitchen: {
+        ...updatedPlayer.kitchen,
+        food: updatedPlayer.kitchen.food + (state.pendingAllocation.food ?? 0),
+        wine: updatedPlayer.kitchen.wine + (state.pendingAllocation.wine ?? 0),
+        coffee: updatedPlayer.kitchen.coffee + (state.pendingAllocation.coffee ?? 0),
+        cake: updatedPlayer.kitchen.cake + (state.pendingAllocation.cake ?? 0),
+      },
+    }
+  } else if (target === 'guest' && guestId) {
+    // 分配到指定客人卡的 placedResources
+    const guestIdx = updatedPlayer.guestWaitingArea.findIndex(g => g.id === guestId)
+    if (guestIdx === -1) return state
+
+    const guest = updatedPlayer.guestWaitingArea[guestIdx]
+    const guestPlaced = guest.placedResources ?? {}
+    const updatedGuest = {
+      ...guest,
+      placedResources: {
+        ...guestPlaced,
+        food: (guestPlaced.food ?? 0) + (state.pendingAllocation.food ?? 0),
+        wine: (guestPlaced.wine ?? 0) + (state.pendingAllocation.wine ?? 0),
+        coffee: (guestPlaced.coffee ?? 0) + (state.pendingAllocation.coffee ?? 0),
+        cake: (guestPlaced.cake ?? 0) + (state.pendingAllocation.cake ?? 0),
+      },
+    }
+    updatedPlayer.guestWaitingArea = updatedPlayer.guestWaitingArea.map((g, i) =>
+      i === guestIdx ? updatedGuest : g
+    )
+  } else {
+    return state
+  }
+
+  const logs = [...state.logs]
+  const pending = state.pendingAllocation
+  const resourceDesc = [
+    pending.food ? `食物×${pending.food}` : '',
+    pending.wine ? `红酒×${pending.wine}` : '',
+    pending.coffee ? `咖啡×${pending.coffee}` : '',
+    pending.cake ? `蛋糕×${pending.cake}` : '',
+  ].filter(Boolean).join(' ')
+
+  if (target === 'kitchen') {
+    logs.push(`${player.name} 将 ${resourceDesc} 分配到厨房`)
+  } else {
+    const guestName = updatedPlayer.guestWaitingArea.find(g => g.id === guestId)?.name ?? guestId
+    logs.push(`${player.name} 将 ${resourceDesc} 分配到 ${guestName} 的卡上`)
+  }
+
+  const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
+  const clearedState = { ...state, players, pendingAllocation: null, logs }
+
+  // 完成行动：coveredSlots +1
+  const withCovered = {
+    ...clearedState,
+    players: clearedState.players.map((p, i) =>
+      i === pIdx ? { ...p, coveredSlots: p.coveredSlots + 1 } : p
+    ),
+  }
+
+  // 检查组奖励
+  const withBonuses = checkAndApplyAllGroupBonuses(withCovered)
 
   // 前进到下一个玩家
   return advanceToNextPlayer(withBonuses)
@@ -1024,7 +1172,7 @@ export function inviteGuest(state: GameState, playerId: string, guestId: string)
     return {
       ...p,
       resources: { ...p.resources, money: p.resources.money - guest.guestCost },
-      guestWaitingArea: [...p.guestWaitingArea, guest],
+      guestWaitingArea: [...p.guestWaitingArea, { ...guest, placedResources: {} }],
     }
   })
   const availableGuests = state.availableGuests.filter((_, i) => i !== guestIdx)
@@ -1056,7 +1204,8 @@ export function canServeGuest(player: Player, guest: GuestCard): boolean {
   })
   if (!matchedRoom) return false
 
-  return guest.requirements.every(req => (player.resources[req.type] ?? 0) >= req.amount)
+  // 检查资源（从客人卡上的 placedResources 检查）
+  return guest.requirements.every(req => ((guest.placedResources ?? {})[req.type] ?? 0) >= req.amount)
 }
 
 /**
@@ -1101,12 +1250,15 @@ export function serveGuestWithRoom(player: Player, guestId: string, slotRow: num
   // 颜色匹配检查
   if (guest.color !== 'green' && room.color !== guest.color) return player
 
-  // 扣除资源
-  const newRes = { ...player.resources }
-  guest.requirements.forEach(req => { newRes[req.type] -= req.amount })
+  // 从客人卡上的 placedResources 扣除资源
+  const newPlacedResources = { ...guest.placedResources }
+  guest.requirements.forEach(req => {
+    newPlacedResources[req.type] = (newPlacedResources[req.type] ?? 0) - req.amount
+  })
 
-  // 增加分数和奖励
+  // 增加分数和奖励（奖励资源发放到 player.resources）
   let newScore = player.score + guest.victoryPoints
+  let newRes = { ...player.resources }
   if (guest.bonusResource && guest.bonusAmount) {
     newRes[guest.bonusResource] += guest.bonusAmount
   }
@@ -1121,7 +1273,7 @@ export function serveGuestWithRoom(player: Player, guestId: string, slotRow: num
     resources: newRes,
     score: newScore,
     guestWaitingArea: player.guestWaitingArea.filter((_, i) => i !== idx),
-    guestServedArea: [...player.guestServedArea, guest],
+    guestServedArea: [...player.guestServedArea, { ...guest, placedResources: newPlacedResources }],
     builtRooms,
   }
 }
@@ -1144,10 +1296,14 @@ export function serveGuest(player: Player, guestId: string): Player {
   })
   if (!roomEntry) return player
 
-  const newRes = { ...player.resources }
-  guest.requirements.forEach(req => { newRes[req.type] -= req.amount })
+  // 从客人卡上的 placedResources 扣除资源
+  const newPlacedResources = { ...guest.placedResources }
+  guest.requirements.forEach(req => {
+    newPlacedResources[req.type] = (newPlacedResources[req.type] ?? 0) - req.amount
+  })
 
   let newScore = player.score + guest.victoryPoints
+  let newRes = { ...player.resources }
   if (guest.bonusResource && guest.bonusAmount) {
     newRes[guest.bonusResource] += guest.bonusAmount
   }
@@ -1161,7 +1317,7 @@ export function serveGuest(player: Player, guestId: string): Player {
     resources: newRes,
     score: newScore,
     guestWaitingArea: player.guestWaitingArea.filter((_, i) => i !== idx),
-    guestServedArea: [...player.guestServedArea, guest],
+    guestServedArea: [...player.guestServedArea, { ...guest, placedResources: newPlacedResources }],
     builtRooms,
   }
 }
@@ -1502,8 +1658,19 @@ export function performFinalScoring(state: GameState): GameState {
   const sorted = [...players].sort((a, b) => {
     const scoreDiff = b.score - a.score
     if (scoreDiff !== 0) return scoreDiff
-    const aRemaining = a.resources.food + a.resources.wine + a.resources.coffee + a.resources.cake + a.resources.money
-    const bRemaining = b.resources.food + b.resources.wine + b.resources.coffee + b.resources.cake + b.resources.money
+    // 平局判定：算上厨房、placedResources 和 player.resources 中的剩余资源
+    const aKitchen = a.kitchen.food + a.kitchen.wine + a.kitchen.coffee + a.kitchen.cake
+    const bKitchen = b.kitchen.food + b.kitchen.wine + b.kitchen.coffee + b.kitchen.cake
+    const aPlacedTotal = a.guestWaitingArea.reduce((sum, g) =>
+      sum + ((g.placedResources?.food ?? 0) + (g.placedResources?.wine ?? 0) +
+            (g.placedResources?.coffee ?? 0) + (g.placedResources?.cake ?? 0)), 0
+    )
+    const bPlacedTotal = b.guestWaitingArea.reduce((sum, g) =>
+      sum + ((g.placedResources?.food ?? 0) + (g.placedResources?.wine ?? 0) +
+            (g.placedResources?.coffee ?? 0) + (g.placedResources?.cake ?? 0)), 0
+    )
+    const aRemaining = a.resources.food + a.resources.wine + a.resources.coffee + a.resources.cake + a.resources.money + aKitchen + aPlacedTotal
+    const bRemaining = b.resources.food + b.resources.wine + b.resources.coffee + b.resources.cake + b.resources.money + bKitchen + bPlacedTotal
     return bRemaining - aRemaining
   })
 
@@ -1531,7 +1698,7 @@ export function startNextRound(state: GameState): GameState {
     ...p,
     turnOrderTileId: newTileAssignments[i],
     isFirstPlayer: false,
-    actionsPerformed: 0,
+    coveredSlots: 0,
     hasPassedInCycle: false,
     extraActionState: createPlayerExtraActionState(),
   }))
@@ -1554,6 +1721,7 @@ export function startNextRound(state: GameState): GameState {
     areaDice: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
     roundNumber: state.roundNumber + 1,
     trashDiceCount: 0,
+    pendingAllocation: null,
     logs: [...state.logs, `--- 第${state.roundNumber + 1}轮 ---`, '所有员工卡已翻回正面，顺位板顺时针传递'],
   }
 }
@@ -1816,26 +1984,32 @@ export function moveKitchenToGuest(
     money: player.kitchen.money,
   }
 
-  // 将食物加到玩家资源（用于完成客人订单）
-  const newResources = {
-    ...player.resources,
-    food: player.resources.food + food,
-    wine: player.resources.wine + wine,
-    coffee: player.resources.coffee + coffee,
-    cake: player.resources.cake + cake,
+  // 将食物放到客人卡片的 placedResources 上（而非 player.resources）
+  const guestPlaced = guest.placedResources ?? {}
+  const updatedGuest = {
+    ...guest,
+    placedResources: {
+      ...guestPlaced,
+      food: (guestPlaced.food ?? 0) + food,
+      wine: (guestPlaced.wine ?? 0) + wine,
+      coffee: (guestPlaced.coffee ?? 0) + coffee,
+      cake: (guestPlaced.cake ?? 0) + cake,
+    },
   }
 
   const updatedPlayer = {
     ...player,
     kitchen: newKitchen,
-    resources: newResources,
+    guestWaitingArea: player.guestWaitingArea.map(g =>
+      g.id === guestId ? updatedGuest : g
+    ),
   }
 
   const players = state.players.map((p, i) => i === pIdx ? updatedPlayer : p)
 
   return {
     ...state, players,
-    logs: [...state.logs, `${player.name} 从厨房移动了 ${count} 个餐饮到${guest.name}`],
+    logs: [...state.logs, `${player.name} 从厨房移动了 ${count} 个餐饮到${guest.name}的卡片上`],
   }
 }
 
