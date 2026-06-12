@@ -186,6 +186,7 @@ export interface TurnOrderTile {
 
 export interface PlayerExtraActionState {
   addDieUsedThisTurn: boolean
+  staffAbilityUsedThisTurn: boolean
 }
 
 // --- Group Bonus Types ---
@@ -228,7 +229,7 @@ export interface Player {
 }
 
 export function createPlayerExtraActionState(): PlayerExtraActionState {
-  return { addDieUsedThisTurn: false }
+  return { addDieUsedThisTurn: false, staffAbilityUsedThisTurn: false }
 }
 
 // --- GameState ---
@@ -264,6 +265,8 @@ export interface GameState {
   trashDiceCount: number
   /** 待分配的资源（来自行动区1/2/6，玩家需要分配到厨房或客人卡） */
   pendingAllocation: Partial<Resources> | null
+  /** 额外行动-员工能力：待选择的员工卡 ID 列表（前端UI显示让用户选1张） */
+  pendingStaffSelection: string[] | null
 }
 
 export function isGroupFullyOccupied(player: Player, groupId: number): boolean {

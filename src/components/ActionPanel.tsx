@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
+import { turnOrderTiles } from '../data/turnOrder'
+import type { ExtraAction } from '../types/game'
 
 const AREA_CONFIG: Record<number, { name: string; desc: string; color: string; icon: string }> = {
   1: { name: '食材市场', desc: '取食物或蛋糕', color: '#e74c3c', icon: '🥖' },
@@ -15,6 +17,18 @@ const GUEST_COLORS: Record<string, { bg: string; border: string; label: string }
   yellow: { bg: '#3a3520', border: '#d4a843', label: '艺术家/政客' },
   red: { bg: '#3a1a1a', border: '#c0392b', label: '市民' },
   green: { bg: '#1a3a1a', border: '#27ae60', label: '旅客' },
+}
+
+// ════════════════════════════════════════
+// Extra Action Config
+// ════════════════════════════════════════
+
+const EXTRA_ACTION_CONFIG: Record<ExtraAction, { icon: string; name: string; costDesc: string; color: string }> = {
+  add_die: { icon: '🎲', name: '添加骰子', costDesc: '💰1元', color: '#3498db' },
+  move_kitchen: { icon: '🍳', name: '厨房到客人', costDesc: '免费', color: '#e67e22' },
+  place_politics: { icon: '🏛️', name: '放置政治圆片', costDesc: '免费', color: '#9b59b6' },
+  use_staff_ability: { icon: '👔', name: '员工能力', costDesc: '免费', color: '#2ecc71' },
+  move_guest: { icon: '👤', name: '入住客人', costDesc: '免费', color: '#f1c40f' },
 }
 
 export function ActionPanel() {
@@ -71,6 +85,579 @@ export function ActionPanel() {
         {tab === 'serve' && <ServeGuestTab />}
         {tab === 'rooms' && <RoomsTab availableRooms={availableRooms} player={player} constructRoom={constructRoom} />}
         {tab === 'staff' && <StaffTab availableStaff={availableStaff} player={player} hireStaffMember={hireStaffMember} />}
+
+        {/* Extra Actions Section - always visible at bottom */}
+        <ExtraActionsSection />
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Extra Actions Section (Issue #4)
+// ════════════════════════════════════════
+
+function ExtraActionsSection() {
+  const currentIdx = useGameStore(s => s.currentPlayerIndex)
+  const player = useGameStore(s => s.players[currentIdx])
+  const performExtraActionAddDie = useGameStore(s => s.performExtraActionAddDie)
+  const performExtraActionMoveKitchen = useGameStore(s => s.performExtraActionMoveKitchen)
+  const performExtraActionPlacePolitics = useGameStore(s => s.performExtraActionPlacePolitics)
+  const performExtraActionUseStaffAbility = useGameStore(s => s.performExtraActionUseStaffAbility)
+  const performExtraActionMoveGuest = useGameStore(s => s.performExtraActionMoveGuest)
+
+  const [showStaffModal, setShowStaffModal] = useState(false)
+  const [showDiePicker, setShowDiePicker] = useState(false)
+  const [showPoliticsPicker, setShowPoliticsPicker] = useState(false)
+  const [showGuestPicker, setShowGuestPicker] = useState(false)
+  const [showKitchenTransfer, setShowKitchenTransfer] = useState(false)
+
+  if (!player || !player.turnOrderTileId) return null
+
+  const tile = turnOrderTiles.find(t => t.id === player.turnOrderTileId)
+  if (!tile || tile.extraActions.length === 0) return null
+
+  const addDieUsed = player.extraActionState.addDieUsedThisTurn
+  const hasMoney = player.resources.money >= 1
+
+  // Find once_per_round staff cards for the staff ability
+  const oncePerRoundStaff = player.staffCards.filter((s: any) => s.timing === 'once_per_round')
+
+  // Check if player has politics cards without their marker
+  const politicsCards = useGameStore.getState().politicsCards
+  const availablePoliticsCards = politicsCards.filter(
+    (c: any) => !player.politicsMarkers.some((m: any) => m.cardId === c.id)
+  )
+
+  // Find guests that can be moved (resources satisfied)
+  const moveableGuests = player.guestWaitingArea.filter((g: any) => {
+    if (!player.builtRooms.some((r: any) => r.capacity > 0)) return false
+    return g.requirements.every((r: { type: string; amount: number }) =>
+      (player.resources[r.type as keyof typeof player.resources] ?? 0) >= r.amount
+    )
+  })
+
+  // Kitchen has resources to move
+  const hasKitchenResources = Object.values(player.kitchen).some((v: number) => v > 0)
+
+  return (
+    <div style={{
+      marginTop: 16,
+      borderTop: '1px solid #2a2a4a',
+      paddingTop: 12,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+      }}>
+        <span style={{ fontSize: 13, color: '#f1c40f', fontWeight: 600 }}>
+          ⚡ 额外行动
+        </span>
+        <span style={{ fontSize: 10, color: '#666' }}>
+          ({tile.nameCn})
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {tile.extraActions.map(action => {
+          const cfg = EXTRA_ACTION_CONFIG[action]
+          let enabled = true
+          let disabledReason = ''
+
+          if (action === 'add_die') {
+            if (addDieUsed) { enabled = false; disabledReason = '已使用' }
+            else if (!hasMoney) { enabled = false; disabledReason = '金钱不足' }
+          } else if (action === 'use_staff_ability') {
+            if (oncePerRoundStaff.length === 0) { enabled = false; disabledReason = '无可用员工' }
+          } else if (action === 'move_guest') {
+            if (moveableGuests.length === 0) { enabled = false; disabledReason = '无客人可入住' }
+          } else if (action === 'place_politics') {
+            if (availablePoliticsCards.length === 0) { enabled = false; disabledReason = '已放满' }
+          } else if (action === 'move_kitchen') {
+            if (!hasKitchenResources) { enabled = false; disabledReason = '厨房为空' }
+            if (player.guestWaitingArea.length === 0) { enabled = false; disabledReason = '无等待客人' }
+          }
+
+          return (
+            <div key={action} style={{ position: 'relative' }}>
+              <div
+                onClick={() => {
+                  if (!enabled) return
+                  if (action === 'add_die') setShowDiePicker(true)
+                  else if (action === 'use_staff_ability') setShowStaffModal(true)
+                  else if (action === 'place_politics') setShowPoliticsPicker(true)
+                  else if (action === 'move_guest') {
+                    performExtraActionMoveGuest()
+                  }
+                  else if (action === 'move_kitchen') setShowKitchenTransfer(true)
+                }}
+                style={{
+                  background: enabled ? '#2a2a4a' : '#1a1a2e',
+                  border: '1px solid ' + (enabled ? cfg.color + '88' : '#3a3a3a'),
+                  borderRadius: 8, padding: '8px 12px',
+                  cursor: enabled ? 'pointer' : 'not-allowed',
+                  opacity: enabled ? 1 : 0.4,
+                  transition: 'all 0.2s',
+                  textAlign: 'center', minWidth: 80,
+                }}
+                onMouseEnter={e => {
+                  if (enabled) {
+                    e.currentTarget.style.borderColor = cfg.color
+                    e.currentTarget.style.background = '#3a3a5a'
+                  }
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = cfg.color + '88'
+                  e.currentTarget.style.background = enabled ? '#2a2a4a' : '#1a1a2e'
+                }}
+              >
+                <div style={{ fontSize: 20, marginBottom: 2 }}>{cfg.icon}</div>
+                <div style={{ color: '#e0e0e0', fontSize: 11, fontWeight: 600 }}>{cfg.name}</div>
+                <div style={{ color: cfg.color, fontSize: 9, marginTop: 1 }}>
+                  {cfg.costDesc}
+                  {!enabled && disabledReason && ` (${disabledReason})`}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Dialogs / Modals */}
+      {showStaffModal && (
+        <StaffCardSelectionModal
+          staffCards={oncePerRoundStaff}
+          onSelect={(cardId) => {
+            performExtraActionUseStaffAbility()
+            setShowStaffModal(false)
+          }}
+          onClose={() => setShowStaffModal(false)}
+        />
+      )}
+
+      {showDiePicker && (
+        <DieValuePicker
+          onSelect={(value) => {
+            performExtraActionAddDie(value)
+            setShowDiePicker(false)
+          }}
+          onClose={() => setShowDiePicker(false)}
+        />
+      )}
+
+      {showPoliticsPicker && (
+        <PoliticsCardPicker
+          cards={availablePoliticsCards}
+          onSelect={(cardId) => {
+            performExtraActionPlacePolitics(cardId)
+            setShowPoliticsPicker(false)
+          }}
+          onClose={() => setShowPoliticsPicker(false)}
+        />
+      )}
+
+      {showGuestPicker && (
+        <GuestMovePicker
+          guests={moveableGuests}
+          onClose={() => setShowGuestPicker(false)}
+        />
+      )}
+
+      {showKitchenTransfer && (
+        <KitchenTransferDialog
+          player={player}
+          onClose={() => setShowKitchenTransfer(false)}
+          onTransfer={(guestId, resources, count) => {
+            performExtraActionMoveKitchen(guestId, resources, count)
+            setShowKitchenTransfer(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Staff Card Selection Modal (Issue #4)
+// ════════════════════════════════════════
+
+function StaffCardSelectionModal({
+  staffCards, onSelect, onClose,
+}: {
+  staffCards: any[]
+  onSelect: (cardId: string) => void
+  onClose: () => void
+}) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 200,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.85)',
+    }}>
+      <div style={{
+        background: '#1a1a2e', borderRadius: 16, padding: 24, maxWidth: 500, width: '95%',
+        border: '1px solid #4a4a6a',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h2 style={{ color: '#f1c40f', margin: 0, fontSize: 17, fontWeight: 600 }}>
+            👔 选择员工能力
+          </h2>
+          <button onClick={onClose}
+            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>
+            ✕
+          </button>
+        </div>
+
+        <p style={{ color: '#888', fontSize: 12, margin: '0 0 14px 0' }}>
+          请选择一张每轮一次的员工卡触发其能力
+        </p>
+
+        {staffCards.length === 0 ? (
+          <div style={{
+            background: '#16213e', borderRadius: 10, padding: 20, textAlign: 'center',
+            border: '1px solid #2a2a4a',
+          }}>
+            <div style={{ color: '#666', fontSize: 13 }}>没有可用的每轮员工卡</div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+            {staffCards.map(card => (
+              <button
+                key={card.id}
+                onClick={() => onSelect(card.id)}
+                style={{
+                  background: '#16213e', border: '1px solid #2a2a4a', borderRadius: 10, padding: 12,
+                  cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#2ecc71'; e.currentTarget.style.background = '#1a2744' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a4a'; e.currentTarget.style.background = '#16213e' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 13 }}>{card.name}</span>
+                  <span style={{ color: '#3498db', fontSize: 9, background: '#3498db22', padding: '1px 6px', borderRadius: 4 }}>
+                    每轮
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#888', lineHeight: 1.3 }}>{card.description}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 2 }}>
+                  <span style={{ color: '#f39c12' }}>💰{card.cost}</span>
+                  <span style={{ color: '#2ecc71' }}>+{card.victoryPoints}分</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 12, textAlign: 'center' }}>
+          <button onClick={onClose}
+            style={{
+              padding: '8px 24px', borderRadius: 8,
+              border: '1px solid #4a4a6a', background: '#2a2a4a',
+              color: '#ccc', cursor: 'pointer', fontSize: 12,
+            }}>
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Die Value Picker for add_die extra action
+// ════════════════════════════════════════
+
+function DieValuePicker({
+  onSelect, onClose,
+}: {
+  onSelect: (value: number) => void
+  onClose: () => void
+}) {
+  return (
+    <div style={{
+      background: '#0f0f1a', borderRadius: 10, padding: 16,
+      border: '1px solid #3a3a5a', marginTop: 12,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
+          🎲 选择行动区添加骰子 (💰1元)
+        </span>
+        <button onClick={onClose}
+          style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+          ✕
+        </button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+        {[1, 2, 3, 4, 5, 6].map(area => (
+          <div key={area} onClick={() => onSelect(area)}
+            style={{
+              background: '#2a2a4a', border: '1px solid ' + AREA_CONFIG[area].color,
+              borderRadius: 8, padding: 10, textAlign: 'center',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#3a3a5a' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#2a2a4a' }}
+          >
+            <div style={{ fontSize: 20 }}>{AREA_CONFIG[area].icon}</div>
+            <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 11, marginTop: 2 }}>
+              区 {area} - {AREA_CONFIG[area].name}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={onClose}
+        style={{
+          marginTop: 8, padding: '6px 16px', borderRadius: 6,
+          border: '1px solid #4a4a6a', background: '#2a2a4a',
+          color: '#ccc', cursor: 'pointer', fontSize: 11,
+        }}>
+        取消
+      </button>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Politics Card Picker for place_politics
+// ════════════════════════════════════════
+
+function PoliticsCardPicker({
+  cards, onSelect, onClose,
+}: {
+  cards: any[]
+  onSelect: (cardId: string) => void
+  onClose: () => void
+}) {
+  return (
+    <div style={{
+      background: '#0f0f1a', borderRadius: 10, padding: 16,
+      border: '1px solid #3a3a5a', marginTop: 12,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
+          🏛️ 选择政治卡放置圆片
+        </span>
+        <button onClick={onClose}
+          style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+          ✕
+        </button>
+      </div>
+      {cards.length === 0 ? (
+        <div style={{ color: '#666', fontSize: 12, padding: 12, textAlign: 'center' }}>
+          所有政治卡已放置圆片
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {cards.map(card => (
+            <div key={card.id} onClick={() => onSelect(card.id)}
+              style={{
+                background: '#2a2a4a', border: '1px solid #4a4a6a', borderRadius: 8,
+                padding: '8px 12px', cursor: 'pointer', minWidth: 120,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#9b59b6'; e.currentTarget.style.background = '#3a2a4a' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#4a4a6a'; e.currentTarget.style.background = '#2a2a4a' }}
+            >
+              <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 12 }}>{card.name}</div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>{card.description}</div>
+              <div style={{ fontSize: 10, color: '#f1c40f', marginTop: 2 }}>+{card.victoryPoints}分</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Guest Move Picker for move_guest extra action
+// ════════════════════════════════════════
+
+function GuestMovePicker({
+  guests, onClose,
+}: {
+  guests: any[]
+  onClose: () => void
+}) {
+  const serveWaitingGuest = useGameStore(s => s.serveWaitingGuest)
+
+  if (guests.length === 0) {
+    return (
+      <div style={{
+        background: '#3a1a1a', borderRadius: 10, padding: 16,
+        border: '1px solid #e74c3c44', marginTop: 12,
+      }}>
+        <div style={{ color: '#e74c3c', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+          没有客人可以入住
+        </div>
+        <div style={{ color: '#888', fontSize: 11 }}>
+          等待区没有满足资源的客人或没有空房间
+        </div>
+        <button onClick={onClose} style={{
+          marginTop: 8, padding: '6px 16px', borderRadius: 6,
+          border: '1px solid #4a4a6a', background: '#2a2a4a', color: '#ccc',
+          cursor: 'pointer', fontSize: 11,
+        }}>关闭</button>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      background: '#0f0f1a', borderRadius: 10, padding: 16,
+      border: '1px solid #3a3a5a', marginTop: 12,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
+          👤 选择入住的客人
+        </span>
+        <button onClick={onClose}
+          style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+          ✕
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {guests.map(guest => {
+          const c = GUEST_COLORS[guest.color] ?? GUEST_COLORS.blue
+          return (
+            <div key={guest.id} onClick={() => { serveWaitingGuest(guest.id); onClose() }}
+              style={{
+                background: c.bg, border: '1px solid ' + c.border, borderRadius: 8,
+                padding: '8px 12px', cursor: 'pointer', minWidth: 100,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = c.bg.replace('1a', '2a') }}
+              onMouseLeave={e => { e.currentTarget.style.background = c.bg }}
+            >
+              <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 12 }}>{guest.name}</div>
+              <div style={{ fontSize: 10, color: '#f1c40f' }}>+{guest.victoryPoints}分</div>
+              <div style={{ fontSize: 10, color: '#888' }}>{c.label}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Kitchen Transfer Dialog for move_kitchen extra action
+// ════════════════════════════════════════
+
+function KitchenTransferDialog({
+  player, onClose, onTransfer,
+}: {
+  player: any
+  onClose: () => void
+  onTransfer: (guestId: string, resources: any, count: number) => void
+}) {
+  const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null)
+  const [transferCount, setTransferCount] = useState(0)
+
+  const kitchen = player.kitchen || { food: 0, wine: 0, coffee: 0, cake: 0, money: 0 }
+  const totalKitchen = Object.values(kitchen).reduce((s: number, v: any) => s + (v || 0), 0)
+
+  const selectedGuest = selectedGuestId
+    ? player.guestWaitingArea.find((g: any) => g.id === selectedGuestId)
+    : null
+
+  return (
+    <div style={{
+      background: '#0f0f1a', borderRadius: 10, padding: 16,
+      border: '1px solid #3a3a5a', marginTop: 12,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
+          🍳 从厨房移动食物到客人
+        </span>
+        <button onClick={onClose}
+          style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+          ✕
+        </button>
+      </div>
+
+      {/* Kitchen summary */}
+      <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+        厨房库存: {totalKitchen} 件
+      </div>
+
+      {/* Guest selection */}
+      <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>选择客人:</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        {player.guestWaitingArea.map((guest: any) => {
+          const isSelected = selectedGuestId === guest.id
+          const c = GUEST_COLORS[guest.color] ?? GUEST_COLORS.blue
+          return (
+            <div key={guest.id} onClick={() => { setSelectedGuestId(guest.id); setTransferCount(0) }}
+              style={{
+                background: isSelected ? c.bg : '#2a2a4a',
+                border: '1px solid ' + (isSelected ? c.border : '#4a4a6a'),
+                borderRadius: 6, padding: '6px 10px',
+                cursor: 'pointer', fontSize: 11,
+                transition: 'all 0.15s',
+              }}>
+              <div style={{ color: '#e0e0e0', fontWeight: 600 }}>{guest.name}</div>
+              <div style={{ color: '#888', fontSize: 10 }}>
+                {guest.requirements.map((r: any) => `${r.type}×${r.amount}`).join(' ')}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Transfer count */}
+      {selectedGuest && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: '#aaa' }}>移动数量:</span>
+          <button onClick={() => setTransferCount(Math.max(0, transferCount - 1))}
+            style={{
+              width: 26, height: 26, borderRadius: 4,
+              border: '1px solid #4a4a6a', background: '#2a2a4a',
+              color: '#e0e0e0', cursor: 'pointer', fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>-</button>
+          <span style={{ color: '#e0e0e0', fontSize: 14, fontWeight: 600, minWidth: 24, textAlign: 'center' }}>
+            {transferCount}
+          </span>
+          <button onClick={() => setTransferCount(Math.min(3, transferCount + 1))}
+            style={{
+              width: 26, height: 26, borderRadius: 4,
+              border: '1px solid #4a4a6a', background: '#2a2a4a',
+              color: '#e0e0e0', cursor: 'pointer', fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>+</button>
+          <span style={{ fontSize: 10, color: '#888' }}>(最多3件)</span>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={() => {
+            if (selectedGuestId && transferCount > 0) {
+              // Simplified: just pass the guestId and count
+              onTransfer(selectedGuestId, {}, transferCount)
+            }
+          }}
+          disabled={!selectedGuestId || transferCount <= 0}
+          style={{
+            padding: '6px 16px', borderRadius: 6,
+            border: '1px solid ' + (selectedGuestId && transferCount > 0 ? '#2ecc71' : '#3a3a3a'),
+            background: selectedGuestId && transferCount > 0 ? '#1a3a2a' : '#1a1a2e',
+            color: selectedGuestId && transferCount > 0 ? '#2ecc71' : '#555',
+            cursor: selectedGuestId && transferCount > 0 ? 'pointer' : 'not-allowed',
+            fontSize: 12,
+          }}>
+          执行转移
+        </button>
+        <button onClick={onClose}
+          style={{
+            padding: '6px 16px', borderRadius: 6,
+            border: '1px solid #4a4a6a', background: '#2a2a4a',
+            color: '#ccc', cursor: 'pointer', fontSize: 12,
+          }}>
+          取消
+        </button>
       </div>
     </div>
   )

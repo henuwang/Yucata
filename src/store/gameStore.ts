@@ -33,6 +33,7 @@ import {
   checkAndApplyAllGroupBonuses,
   rerollRemainingDice,
   allocatePendingResources,
+  getAvailableStaffCardsForExtraAction,
 } from '../game-logic/engine'
 
 interface GameStore extends GameState {
@@ -59,6 +60,7 @@ interface GameStore extends GameState {
   performExtraActionMoveKitchen: (guestId: string, resources: Partial<Resources>, count: number) => void
   performExtraActionPlacePolitics: (cardId: string) => void
   performExtraActionUseStaffAbility: () => void
+  selectStaffCardForExtraAction: (cardId: string) => void
   performExtraActionMoveGuest: () => void
   checkGroupBonuses: () => void
   // 资源分配（资源流转系统）
@@ -307,48 +309,76 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (!hasExtraAction(state, playerId, 'use_staff_ability')) return
 
-    // 触发所有 once_per_round 员工能力（将资源加到厨房）
-    let currentLogs = [...state.logs]
-    let updatedPlayer = { ...player }
+    // 收集所有可用的 once_per_round 员工卡，让用户选择1张
+    const availableCards = getAvailableStaffCardsForExtraAction(player)
 
-    for (const staff of player.staffCards) {
-      if (staff.timing === 'once_per_round') {
-        let resourceKey: keyof Resources = 'food'
-        switch (staff.ability) {
-          case 'once_wine':
-            resourceKey = 'wine'
-            break
-          case 'once_strudel':
-            resourceKey = 'food'
-            break
-          case 'once_cake':
-            resourceKey = 'cake'
-            break
-          case 'once_coffee':
-            resourceKey = 'coffee'
-            break
-          default:
-            continue
-        }
-        updatedPlayer = {
-          ...updatedPlayer,
-          kitchen: {
-            ...updatedPlayer.kitchen,
-            [resourceKey]: updatedPlayer.kitchen[resourceKey] + 1,
-          },
-        }
-        currentLogs.push(`${player.name} 使用员工能力: ${resourceKey}+1`)
-      }
+    if (availableCards.length === 0) {
+      set({
+        ...state,
+        logs: [...state.logs, `${player.name} 尝试使用员工能力但没有可用的员工卡`],
+      })
+      return
+    }
+
+    // 设置为待选择状态，前端UI将让用户选择1张
+    set({
+      ...state,
+      pendingStaffSelection: availableCards.map(c => c.id),
+      logs: [...state.logs, `${player.name} 使用额外行动: 请选择1张员工卡触发能力`],
+    })
+  },
+
+  selectStaffCardForExtraAction: (cardId: string) => {
+    const state = get()
+    const pIdx = state.currentPlayerIndex
+    const player = state.players[pIdx]
+
+    if (!state.pendingStaffSelection) return
+    if (!state.pendingStaffSelection.includes(cardId)) return
+
+    const staff = player.staffCards.find(s => s.id === cardId)
+    if (!staff) return
+
+    // 确定资源类型并应用到厨房
+    let resourceKey: keyof Resources = 'food'
+    switch (staff.ability) {
+      case 'once_wine':
+        resourceKey = 'wine'
+        break
+      case 'once_strudel':
+        resourceKey = 'food'
+        break
+      case 'once_cake':
+        resourceKey = 'cake'
+        break
+      case 'once_coffee':
+        resourceKey = 'coffee'
+        break
+      default:
+        return
+    }
+
+    const updatedPlayer = {
+      ...player,
+      kitchen: {
+        ...player.kitchen,
+        [resourceKey]: player.kitchen[resourceKey] + 1,
+      },
+      extraActionState: {
+        ...player.extraActionState,
+        staffAbilityUsedThisTurn: true,
+      },
     }
 
     const players = state.players.map((p, i) =>
-      i === state.currentPlayerIndex ? updatedPlayer : p
+      i === pIdx ? updatedPlayer : p
     )
 
     set({
       ...state,
       players,
-      logs: [...currentLogs, `${player.name} 使用每轮员工能力`],
+      pendingStaffSelection: null,
+      logs: [...state.logs, `${player.name} 使用员工能力「${staff.name}」: ${resourceKey}+1到厨房`],
     })
   },
 

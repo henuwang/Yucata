@@ -116,6 +116,7 @@ export function initializeGame(playerCount: number): GameState {
     completedGroupBonuses: [],
     trashDiceCount: 0,
     pendingAllocation: null,
+    pendingStaffSelection: null,
   }
 }
 
@@ -187,11 +188,16 @@ export function pickStaffCardForDraft(state: GameState, cardId: string): GameSta
 
     // 6轮后所有玩家都有6张员工卡
     if (newRound >= 6) {
+      // 在进入 setup_guest 阶段前，先分配顺位板
+      const withTilesAssigned = assignTurnOrderTiles({ ...state, players: swappedPlayers })
+      // 计算 setup_guest 阶段的起始玩家（顺位板数字最小的玩家）
+      const setupOrder = getSetupOrder(withTilesAssigned.players, withTilesAssigned.turnOrderTiles)
+      const firstSetupPlayer = setupOrder[0]
+
       return {
-        ...state,
-        players: swappedPlayers,
+        ...withTilesAssigned,
         phase: 'setup_guest',
-        setupPlayerIndex: (state.maxPlayers - 1),
+        setupPlayerIndex: firstSetupPlayer,
         setupStaffRound: 0,
         logs: [
           ...state.logs,
@@ -226,11 +232,23 @@ export function pickStaffCardForDraft(state: GameState, cardId: string): GameSta
 
 // --- Setup Phase ---
 
-function getSetupOrder(playerCount: number, firstPlayer: number): number[] {
+export function getSetupOrder(players: Player[], turnOrderTiles: TurnOrderTile[]): number[] {
+  // 找到顺位板数字最小的玩家
+  let smallestIdx = 0
+  let smallestNumber = Infinity
+
+  for (let i = 0; i < players.length; i++) {
+    const tile = turnOrderTiles.find(t => t.id === players[i].turnOrderTileId)
+    if (tile && tile.number < smallestNumber) {
+      smallestNumber = tile.number
+      smallestIdx = i
+    }
+  }
+
+  // 从顺位数字最小的玩家开始，逆时针排列
   const order: number[] = []
-  const lastPlayer = (firstPlayer + playerCount - 1) % playerCount
-  for (let i = 0; i < playerCount; i++) {
-    order.push((lastPlayer - i + playerCount) % playerCount)
+  for (let i = 0; i < players.length; i++) {
+    order.push((smallestIdx - i + players.length) % players.length)
   }
   return order
 }
@@ -255,7 +273,7 @@ export function pickSetupGuest(state: GameState, guestId: string): GameState {
     ? [...remainingGuests, newGuestFromDeck]
     : remainingGuests
 
-  const setupOrder = getSetupOrder(state.maxPlayers, state.players.findIndex(p => p.isFirstPlayer))
+  const setupOrder = getSetupOrder(state.players, state.turnOrderTiles)
   const currentSetupIdx = setupOrder.indexOf(pIdx)
 
   if (currentSetupIdx >= setupOrder.length - 1) {
@@ -1918,13 +1936,27 @@ export function getPlayerTurnOrderTile(state: GameState, playerId: string): Turn
 /**
  * 检查玩家是否可以执行某种额外行动
  */
-export function canPerformExtraAction(state: GameState, playerId: string, action: 'add_die'): boolean {
+export function canPerformExtraAction(state: GameState, playerId: string, action: 'add_die' | 'use_staff_ability'): boolean {
+  const player = state.players.find(p => p.id === playerId)
+  if (!player) return false
+
   if (action === 'add_die') {
-    const player = state.players.find(p => p.id === playerId)
-    if (!player) return false
     return !player.extraActionState.addDieUsedThisTurn
   }
+  if (action === 'use_staff_ability') {
+    return !player.extraActionState.staffAbilityUsedThisTurn
+  }
   return true
+}
+
+/**
+ * 获取当前玩家可用的 once_per_round 员工卡列表（供额外行动选择）
+ */
+export function getAvailableStaffCardsForExtraAction(player: Player): StaffCard[] {
+  return player.staffCards.filter(
+    staff => staff.timing === 'once_per_round' &&
+      ['once_wine', 'once_strudel', 'once_cake', 'once_coffee'].includes(staff.ability)
+  )
 }
 
 /**
