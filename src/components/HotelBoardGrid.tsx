@@ -3,7 +3,7 @@ import { useGameStore } from '../store/gameStore'
 import type { Player, HotelBoardSlot } from '../types/game'
 
 const SLOT_BG: Record<string, string> = {
-  red: '#5a2a2a', yellow: '#5a4a1a', blue: '#2a3a5a',
+  red: '#7a1a1a', yellow: '#7a6a1a', blue: '#1a3a7a',
 }
 
 const COLOR_BORDER: Record<string, string> = {

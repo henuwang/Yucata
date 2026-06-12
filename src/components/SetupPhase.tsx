@@ -4,6 +4,9 @@ import { HotelBoardGrid } from './HotelBoardGrid'
 const REQ_ICONS: Record<string, string> = {
   food: '🥖', wine: '🍷', coffee: '☕', cake: '🍰', money: '💰',
 }
+const RES_NAMES_CN: Record<string, string> = {
+  food: '面包', wine: '红酒', coffee: '咖啡', cake: '蛋糕', money: '金钱',
+}
 
 export function SetupStaffPhase() {
   const phase = useGameStore(s => s.phase)
@@ -228,7 +231,7 @@ function SetupGuestCard({ guest, playerColor }: { guest: any; playerColor: strin
       </div>
       {guest.bonusResource && (
         <div style={{ fontSize: 10, color: '#e67e22' }}>
-          奖励: +{guest.bonusAmount} {guest.bonusResource}
+          🎁 {REQ_ICONS[guest.bonusResource]}+{guest.bonusAmount} {RES_NAMES_CN[guest.bonusResource]}
         </div>
       )}
     </button>
