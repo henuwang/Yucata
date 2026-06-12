@@ -54,6 +54,7 @@ function createPlayer(id: string, name: string, color: string): Player {
     extraActionState: createPlayerExtraActionState(),
     coveredSlots: 0,
     hasPassedInCycle: false,
+    guestInvitedThisTurn: false,
   }
 }
 
@@ -552,8 +553,14 @@ function advanceToNextPlayer(state: GameState): GameState {
     return handleRoundEnd(state)
   }
 
+  // 重置新玩家回合的客人邀请状态
+  const updatedPlayers = state.players.map((p, i) =>
+    i === nextIdx ? { ...p, guestInvitedThisTurn: false } : p
+  )
+
   return {
     ...state,
+    players: updatedPlayers,
     currentPlayerIndex: nextIdx,
     logs: [...state.logs, `轮到 ${state.players[nextIdx].name} 行动`],
   }
@@ -1719,6 +1726,7 @@ export function startNextRound(state: GameState): GameState {
     coveredSlots: 0,
     hasPassedInCycle: false,
     extraActionState: createPlayerExtraActionState(),
+    guestInvitedThisTurn: false,
   }))
 
   // 找到新的第一顺位玩家

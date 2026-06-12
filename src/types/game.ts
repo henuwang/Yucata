@@ -226,6 +226,8 @@ export interface Player {
   coveredSlots: number
   /** 当前重掷周期中是否已跳过（跳过不遮盖槽位，仅标记本轮不再行动） */
   hasPassedInCycle: boolean
+  /** 当前回合是否已邀请过客人（每回合最多邀请1次） */
+  guestInvitedThisTurn: boolean
 }
 
 export function createPlayerExtraActionState(): PlayerExtraActionState {
