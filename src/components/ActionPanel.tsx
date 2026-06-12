@@ -124,6 +124,7 @@ function ExtraActionsSection() {
   const performExtraActionMoveKitchen = useGameStore(s => s.performExtraActionMoveKitchen)
   const performExtraActionPlacePolitics = useGameStore(s => s.performExtraActionPlacePolitics)
   const performExtraActionUseStaffAbility = useGameStore(s => s.performExtraActionUseStaffAbility)
+  const selectStaffCardForExtraAction = useGameStore(s => s.selectStaffCardForExtraAction)
   const performExtraActionMoveGuest = useGameStore(s => s.performExtraActionMoveGuest)
 
   const [showStaffModal, setShowStaffModal] = useState(false)
@@ -138,10 +139,14 @@ function ExtraActionsSection() {
   if (!tile || tile.extraActions.length === 0) return null
 
   const addDieUsed = player.extraActionState.addDieUsedThisTurn
+  const staffAbilityUsed = player.extraActionState.staffAbilityUsedThisTurn
   const hasMoney = player.resources.money >= 1
 
   // Find once_per_round staff cards for the staff ability
-  const oncePerRoundStaff = player.staffCards.filter((s: any) => s.timing === 'once_per_round')
+  const oncePerRoundStaff = player.staffCards.filter((s: any) =>
+    s.timing === 'once_per_round' &&
+    ['once_wine', 'once_strudel', 'once_cake', 'once_coffee'].includes(s.ability)
+  )
 
   // Check if player has politics cards without their marker
   const politicsCards = useGameStore.getState().politicsCards
@@ -187,7 +192,8 @@ function ExtraActionsSection() {
             if (addDieUsed) { enabled = false; disabledReason = '已使用' }
             else if (!hasMoney) { enabled = false; disabledReason = '金钱不足' }
           } else if (action === 'use_staff_ability') {
-            if (oncePerRoundStaff.length === 0) { enabled = false; disabledReason = '无可用员工' }
+            if (staffAbilityUsed) { enabled = false; disabledReason = '已使用' }
+            else if (oncePerRoundStaff.length === 0) { enabled = false; disabledReason = '无可用员工' }
           } else if (action === 'move_guest') {
             if (moveableGuests.length === 0) { enabled = false; disabledReason = '无客人可入住' }
           } else if (action === 'place_politics') {
@@ -203,7 +209,10 @@ function ExtraActionsSection() {
                 onClick={() => {
                   if (!enabled) return
                   if (action === 'add_die') setShowDiePicker(true)
-                  else if (action === 'use_staff_ability') setShowStaffModal(true)
+                  else if (action === 'use_staff_ability') {
+                    performExtraActionUseStaffAbility()
+                    setShowStaffModal(true)
+                  }
                   else if (action === 'place_politics') setShowPoliticsPicker(true)
                   else if (action === 'move_guest') {
                     performExtraActionMoveGuest()
@@ -247,7 +256,7 @@ function ExtraActionsSection() {
         <StaffCardSelectionModal
           staffCards={oncePerRoundStaff}
           onSelect={(cardId) => {
-            performExtraActionUseStaffAbility()
+            selectStaffCardForExtraAction(cardId)
             setShowStaffModal(false)
           }}
           onClose={() => setShowStaffModal(false)}
