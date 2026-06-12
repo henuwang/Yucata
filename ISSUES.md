@@ -246,18 +246,30 @@
 
 ### Issue #10: 员工卡效果需要逐卡核对
 
-**严重程度**: 🟡 P2 | **影响范围**: 数据层 / 逻辑层 | **状态**: 待审查
+**严重程度**: 🟡 P2 | **影响范围**: 数据层 / 逻辑层 | **状态**: ✅ 已完成 (v0.x)
 
 **规则要求**: 48 张员工卡，每张有精确的效果描述
 
-**当前实现**:
-- 数据文件中有 48 张员工卡
-- 但部分能力标记为"尚未实现"（如 `complete_guest_from_supply`）
-- 需要逐卡核对效果是否与规则书一致
+**修改内容**:
 
-**需要修改的文件**:
-- `src/data/staff.ts` — 核对数据
-- `src/game-logic/engine.ts` — 补充未实现的能力
+1. **实现 complete_guest_from_supply (s7 - 门房/Portier)**
+   - 从公共供应区（无限）拿取食物直接完成一位客人的订单
+   - 自动查找等待区中第一个有匹配空房间的客人
+   - 填满客人需求到 `placedResources` 后自动完成服务
+   - 发放分数、奖励资源和房间容量减1
+
+2. **实现 end_copy_staff (s45 - 秘书/Secretary)**
+   - 遍历所有其他玩家的 `end_of_game` 员工卡（排除自身避免递归）
+   - 基于各玩家自己的游戏状态计算 VP，取最高值
+
+3. **永久能力触发点审核**
+   - `performAreaAction1`: 添加 `die_1_2_extra_resource`（+1面包）、`die_1_2_build_room` 日志触发
+   - `performAreaAction2`: 添加 `die_1_2_extra_resource`（+1红酒）、`die_1_2_build_room` 日志触发
+   - `performAreaAction4`: 添加 `die_4_emperor_and_money`（皇帝+1 金钱+1）、`die_4_plus_4vp`（+4分）
+   - `serveGuest/serveGuestWithRoom`: 添加 `green_guest_plus_2vp`、`yellow_guest_plus_1kr`、`red_guest_plus_2kr`、`blue_guest_emperor_1`、`serve_4dish_plus_4vp`、`guest_to_room_plus_1kr` 触发
+
+**修改的文件**:
+- `src/game-logic/engine.ts` — 实现未完成的能力和永久能力触发
 
 ---
 
