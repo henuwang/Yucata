@@ -326,6 +326,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const player = state.players[state.currentPlayerIndex]
 
     if (!hasExtraAction(state, playerId, 'use_staff_ability')) return
+    if (!canPerformExtraAction(state, playerId, 'use_staff_ability')) return
 
     // 收集所有可用的 once_per_round 员工卡，让用户选择1张
     const availableCards = getAvailableStaffCardsForExtraAction(player)
@@ -353,6 +354,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (!state.pendingStaffSelection) return
     if (!state.pendingStaffSelection.includes(cardId)) return
+    if (!canPerformExtraAction(state, player.id, 'use_staff_ability')) return
 
     const staff = player.staffCards.find(s => s.id === cardId)
     if (!staff) return
