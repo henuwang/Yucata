@@ -1821,7 +1821,7 @@ function applyEndGameStaffAbility(player: Player, staff: StaffCard, _allPlayers:
         for (const otherStaff of otherPlayer.staffCards) {
           if (otherStaff.timing !== 'end_of_game') continue
           if (otherStaff.ability === 'end_copy_staff') continue // 避免递归
-          const vp = applyEndGameStaffAbility(otherPlayer, otherStaff, _allPlayers)
+          const vp = applyEndGameStaffAbility(player, otherStaff, _allPlayers)
           maxVp = Math.max(maxVp, vp)
         }
       }
