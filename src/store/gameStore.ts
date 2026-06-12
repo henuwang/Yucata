@@ -49,6 +49,7 @@ interface GameStore extends GameState {
   skipAction: () => void
   removeDieAndReroll: () => void
   inviteGuestAction: (guestId: string) => void
+  inviteGuestFromBoard: (guestId: string) => void
   serveWaitingGuest: (guestId: string, slotRow?: number, slotCol?: number) => void
   constructRoom: (roomId: string) => void
   hireStaffMember: (staffId: string) => void
@@ -164,7 +165,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const player = state.players[state.currentPlayerIndex]
     const guest = state.availableGuests.find(g => g.id === guestId)
     if (!guest || !canInviteGuest(player, guest)) return
-    const next = inviteGuest(state, player.id, guestId)
+    let next = inviteGuest(state, player.id, guestId)
+    // 标记该玩家本回合已邀请客人
+    const pIdx = next.currentPlayerIndex
+    const updatedPlayer = { ...next.players[pIdx], guestInvitedThisTurn: true }
+    next = { ...next, players: next.players.map((p, i) => i === pIdx ? updatedPlayer : p) }
+    set({ ...next })
+  },
+
+  inviteGuestFromBoard: (guestId: string) => {
+    const state = get()
+    const player = state.players[state.currentPlayerIndex]
+    const guest = state.availableGuests.find(g => g.id === guestId)
+    if (!guest || !canInviteGuest(player, guest)) return
+    if (player.guestInvitedThisTurn) return
+    let next = inviteGuest(state, player.id, guestId)
+    const pIdx = next.currentPlayerIndex
+    const updatedPlayer = { ...next.players[pIdx], guestInvitedThisTurn: true }
+    next = { ...next, players: next.players.map((p, i) => i === pIdx ? updatedPlayer : p) }
     set({ ...next })
   },
 

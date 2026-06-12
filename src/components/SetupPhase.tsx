@@ -5,7 +5,7 @@ const REQ_ICONS: Record<string, string> = {
   food: '🥖', wine: '🍷', coffee: '☕', cake: '🍰', money: '💰',
 }
 const RES_NAMES_CN: Record<string, string> = {
-  food: '面包', wine: '红酒', coffee: '咖啡', cake: '蛋糕', money: '金钱',
+  food: '馅饼', wine: '红酒', coffee: '咖啡', cake: '蛋糕', money: '金钱',
 }
 
 export function SetupStaffPhase() {

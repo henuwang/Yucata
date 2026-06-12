@@ -41,6 +41,7 @@ export function ActionPanel() {
   const availableStaff = useGameStore(s => s.availableStaff)
   const takeAreaAction = useGameStore(s => s.takeAreaAction)
   const inviteGuestAction = useGameStore(s => s.inviteGuestAction)
+  const inviteGuestFromBoard = useGameStore(s => s.inviteGuestFromBoard)
   const constructRoom = useGameStore(s => s.constructRoom)
   const hireStaffMember = useGameStore(s => s.hireStaffMember)
 
@@ -80,7 +81,26 @@ export function ActionPanel() {
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-        {tab === 'action' && <ActionAreaTab areaCounts={areaCounts} takeAreaAction={takeAreaAction} />}
+        {tab === 'action' && (
+          <>
+            {!player.guestInvitedThisTurn && player.guestWaitingArea.length < 3 && (
+              <InviteGuestBoardSection
+                availableGuests={availableGuests}
+                player={player}
+                inviteGuestFromBoard={inviteGuestFromBoard}
+              />
+            )}
+            {player.guestInvitedThisTurn && (
+              <div style={{
+                background: '#1a2a1a', border: '1px solid #2ecc7144', borderRadius: 8,
+                padding: '10px 14px', marginBottom: 12, textAlign: 'center',
+              }}>
+                <span style={{ color: '#2ecc71', fontSize: 13, fontWeight: 600 }}>✅ 已邀请客人</span>
+              </div>
+            )}
+            <ActionAreaTab areaCounts={areaCounts} takeAreaAction={takeAreaAction} />
+          </>
+        )}
         {tab === 'invite' && <InviteGuestTab availableGuests={availableGuests} player={player} inviteGuestAction={inviteGuestAction} />}
         {tab === 'serve' && <ServeGuestTab />}
         {tab === 'rooms' && <RoomsTab availableRooms={availableRooms} player={player} constructRoom={constructRoom} />}
@@ -860,7 +880,7 @@ function SplitDialog({
   onConfirm: () => void; onCancel: () => void
 }) {
   let label1 = '', label2 = ''
-  if (area === 1) { label1 = '🥖 食物x' + (n - splitVal); label2 = '🍰 蛋糕x' + splitVal }
+  if (area === 1) { label1 = '🥖 馅饼x' + (n - splitVal); label2 = '🍰 蛋糕x' + splitVal }
   else if (area === 2) { label1 = '🍷 红酒x' + (n - splitVal); label2 = '☕ 咖啡x' + splitVal }
   else { label1 = '💰 金钱x' + (n - splitVal); label2 = '👑 皇帝+' + splitVal }
 
@@ -874,7 +894,7 @@ function SplitDialog({
         <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>
           {area === 1 ? '蛋糕' : area === 2 ? '咖啡' : '皇帝步数'}: {splitVal}
         </div>
-        <input type="range" min={0} max={n} value={splitVal}
+        <input type="range" min={0} max={area === 1 || area === 2 ? Math.floor(n / 2) : n} value={splitVal}
           onChange={e => setSplitVal(parseInt(e.target.value))}
           style={{ width: '100%', accentColor: cfg.color }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666' }}>
@@ -945,6 +965,89 @@ function InviteGuestTab({ availableGuests, player, inviteGuestAction }: {
               {g.bonusResource && g.bonusAmount && (
                 <div style={{ fontSize: 9, color: '#2ecc71', marginTop: 2 }}>
                   🎁 {REQ_ICONS[g.bonusResource] || '?'}+{g.bonusAmount}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════
+// Invite Guest Board Section (每回合可选邀请)
+// ════════════════════════════════════════
+
+function InviteGuestBoardSection({
+  availableGuests, player, inviteGuestFromBoard,
+}: {
+  availableGuests: any[]; player: any; inviteGuestFromBoard: (id: string) => void
+}) {
+  return (
+    <div style={{
+      background: '#0f0f1a', borderRadius: 10, padding: 12, marginBottom: 12,
+      border: '1px solid #3a3a5a',
+    }}>
+      <div style={{
+        fontSize: 13, color: '#f1c40f', fontWeight: 600, marginBottom: 10,
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <span>👥 邀请客人（可选）</span>
+        <span style={{ fontSize: 10, color: '#888', fontWeight: 400 }}>
+          （咖啡厅: {player.guestWaitingArea.length}/3）
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {availableGuests.slice(0, 5).map((g: any) => {
+          const canAfford = player.resources.money >= g.guestCost
+          const c = GUEST_COLORS[g.color] ?? GUEST_COLORS.blue
+          return (
+            <div
+              key={g.id}
+              onClick={() => { if (canAfford) inviteGuestFromBoard(g.id) }}
+              style={{
+                background: c.bg,
+                border: '1px solid ' + (canAfford ? c.border : '#3a3a3a'),
+                borderRadius: 8, padding: '8px 10px', minWidth: 90, flex: '1 0 auto',
+                maxWidth: 130,
+                cursor: canAfford ? 'pointer' : 'not-allowed',
+                opacity: canAfford ? 1 : 0.4,
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => {
+                if (canAfford) {
+                  e.currentTarget.style.background = c.bg.replace('1a', '2a')
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)'
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = c.bg
+                e.currentTarget.style.transform = 'none'
+                e.currentTarget.style.boxShadow = 'none'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 11 }}>{g.name}</span>
+                <span style={{ color: '#f1c40f', fontSize: 9 }}>+{g.victoryPoints}</span>
+              </div>
+              <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{c.label}</div>
+              <div style={{ fontSize: 10, color: canAfford ? '#f39c12' : '#e74c3c', marginTop: 2 }}>
+                {'💰' + g.guestCost}
+              </div>
+              {/* Guest requirements */}
+              {g.requirements && g.requirements.length > 0 && (
+                <div style={{ display: 'flex', gap: 2, marginTop: 3, flexWrap: 'wrap' }}>
+                  {g.requirements.map((r: any, i: number) => (
+                    <span key={i} style={{
+                      fontSize: 8, background: 'rgba(255,255,255,0.08)',
+                      borderRadius: 3, padding: '1px 3px', color: '#aaa',
+                    }}>
+                      {REQ_ICONS[r.type] || '?'}×{r.amount}
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
