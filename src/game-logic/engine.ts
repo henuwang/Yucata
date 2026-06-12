@@ -2203,6 +2203,12 @@ export function moveKitchenToGuest(
   // 检查移动数量上限
   if (count > 3) return state
 
+  // 检查费用：除非有免费送餐能力(s28 - 首席服务员)，否则需支付1克朗
+  const hasFreeServe = hasPermanentAbility(player, 'free_serve_guest')
+  if (!hasFreeServe) {
+    if (player.kitchen.money < 1) return state
+  }
+
   // 检查厨房是否有足够的资源
   const food = resources.food ?? 0
   const wine = resources.wine ?? 0
@@ -2216,13 +2222,14 @@ export function moveKitchenToGuest(
     return state
   }
 
-  // 从厨房扣除
+  // 从厨房扣除（包含1克朗费用）
+  const kitchenCost = hasFreeServe ? 0 : 1
   const newKitchen = {
     food: player.kitchen.food - food,
     wine: player.kitchen.wine - wine,
     coffee: player.kitchen.coffee - coffee,
     cake: player.kitchen.cake - cake,
-    money: player.kitchen.money,
+    money: player.kitchen.money - kitchenCost,
   }
 
   // 将食物放到客人卡片的 placedResources 上（而非 player.resources）
@@ -2250,7 +2257,7 @@ export function moveKitchenToGuest(
 
   return {
     ...state, players,
-    logs: [...state.logs, `${player.name} 从厨房移动了 ${count} 个餐饮到${guest.name}的卡片上`],
+    logs: [...state.logs, `${player.name} 从厨房移动了 ${count} 个餐饮到${guest.name}的卡片上${!hasFreeServe ? '（花费1克朗）' : '（免费）'}`],
   }
 }
 
