@@ -1,4 +1,4 @@
-import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus } from '../types/game'
+import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, StaffAbility, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus } from '../types/game'
 import { createResources, createPlayerExtraActionState } from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
@@ -668,12 +668,26 @@ export function performAreaAction1(state: GameState, takeCake: number): GameStat
   const n = state.areaDice[1] ?? 0
   if (n <= 0) return state
 
-  const cake = Math.min(takeCake, n)
-  const food = n - cake
+  let cake = Math.min(takeCake, n)
+  let food = n - cake
 
   // 任务5：蛋糕 ≤ 面包约束
   if (cake > food) return state
   if (cake < 0 || food < 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  const logs = [...state.logs]
+
+  // 永久能力：die_1_2_extra_resource - 餐厅经理 - 额外获得1份面包
+  if (hasPermanentAbility(player, 'die_1_2_extra_resource')) {
+    food += 1
+    logs.push(`${player.name} 触发永久能力【餐厅经理】: 额外获得1份面包`)
+  }
+
+  // 永久能力：die_1_2_build_room - 装潢师 - 可额外准备1个房间
+  if (hasPermanentAbility(player, 'die_1_2_build_room')) {
+    logs.push(`${player.name} 触发永久能力【装潢师】: 可额外准备1个房间`)
+  }
 
   // 不直接加到 player.resources，而是设置 pendingAllocation
   const afterRemove = removeOneFromAreaDice(state, 1)
@@ -682,7 +696,7 @@ export function performAreaAction1(state: GameState, takeCake: number): GameStat
   return {
     ...afterRemove, dice,
     pendingAllocation: { food, cake },
-    logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 执行行动区1: 获得食物×${food} 蛋糕×${cake}，请分配`],
+    logs: [...logs, `${player.name} 执行行动区1: 获得食物×${food} 蛋糕×${cake}，请分配`],
   }
 }
 
@@ -694,12 +708,26 @@ export function performAreaAction2(state: GameState, takeCoffee: number): GameSt
   const n = state.areaDice[2] ?? 0
   if (n <= 0) return state
 
-  const coffee = Math.min(takeCoffee, n)
-  const wine = n - coffee
+  let coffee = Math.min(takeCoffee, n)
+  let wine = n - coffee
 
   // 任务5：咖啡 ≤ 红酒约束
   if (coffee > wine) return state
   if (coffee < 0 || wine < 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  const logs = [...state.logs]
+
+  // 永久能力：die_1_2_extra_resource - 餐厅经理 - 额外获得1份红酒
+  if (hasPermanentAbility(player, 'die_1_2_extra_resource')) {
+    wine += 1
+    logs.push(`${player.name} 触发永久能力【餐厅经理】: 额外获得1份红酒`)
+  }
+
+  // 永久能力：die_1_2_build_room - 装潢师 - 可额外准备1个房间
+  if (hasPermanentAbility(player, 'die_1_2_build_room')) {
+    logs.push(`${player.name} 触发永久能力【装潢师】: 可额外准备1个房间`)
+  }
 
   // 不直接加到 player.resources，而是设置 pendingAllocation
   const afterRemove = removeOneFromAreaDice(state, 2)
@@ -708,7 +736,7 @@ export function performAreaAction2(state: GameState, takeCoffee: number): GameSt
   return {
     ...afterRemove, dice,
     pendingAllocation: { wine, coffee },
-    logs: [...state.logs, `${state.players[state.currentPlayerIndex].name} 执行行动区2: 获得红酒×${wine} 咖啡×${coffee}，请分配`],
+    logs: [...logs, `${player.name} 执行行动区2: 获得红酒×${wine} 咖啡×${coffee}，请分配`],
   }
 }
 
@@ -769,16 +797,33 @@ export function performAreaAction4(state: GameState, toEmperor: number): GameSta
   const n = state.areaDice[4] ?? 0
   if (n <= 0) return state
 
-  const emperor = Math.min(toEmperor, n)
-  const money = n - emperor
+  let emperor = Math.min(toEmperor, n)
+  let money = n - emperor
   if (emperor < 0 || money < 0) return state
 
   const player = state.players[state.currentPlayerIndex]
+  const logs = [...state.logs]
+
+  // 永久能力：die_4_emperor_and_money - 擦鞋匠 - 皇帝和金钱各前进1格
+  if (hasPermanentAbility(player, 'die_4_emperor_and_money')) {
+    emperor += 1
+    money += 1
+    logs.push(`${player.name} 触发永久能力【擦鞋匠】: 皇帝+1 金钱+1`)
+  }
+
+  // 永久能力：die_4_plus_4vp - 洗衣女工 - 额外获得4分
+  let extraScore = 0
+  if (hasPermanentAbility(player, 'die_4_plus_4vp')) {
+    extraScore += 4
+    logs.push(`${player.name} 触发永久能力【洗衣女工】: 额外+4分`)
+  }
+
   const newRes = { ...player.resources, money: player.resources.money + money }
   const players = state.players.map((p, i) =>
     i === state.currentPlayerIndex ? {
       ...p, resources: newRes,
       emperorTrack: p.emperorTrack + emperor,
+      score: p.score + extraScore,
     } : p
   )
 
@@ -787,7 +832,7 @@ export function performAreaAction4(state: GameState, toEmperor: number): GameSta
 
   return {
     ...afterRemove, dice, players,
-    logs: [...state.logs, `${player.name} 执行行动区4: 皇帝+${emperor} 金钱+${money}`],
+    logs: [...logs, `${player.name} 执行行动区4: 皇帝+${emperor} 金钱+${money}`],
   }
 }
 
@@ -1168,16 +1213,101 @@ export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard): Ga
       }
     }
 
-    case 'complete_guest_from_supply':
-      console.log('能力 complete_guest_from_supply 尚未实现')
+    case 'complete_guest_from_supply': {
+      // 从公共供应区（无限）拿取食物直接完成一位客人的订单
+      // 找到玩家等待区中第一个有匹配空房间的客人
+      const guestToServe = player.guestWaitingArea.find(g => {
+        return player.builtRooms.some(r => {
+          if (r.capacity <= 0) return false
+          if (g.color === 'green') return true
+          return r.color === g.color
+        })
+      })
+
+      if (!guestToServe) {
+        return {
+          ...state,
+          logs: [...state.logs, `${player.name} 触发员工能力: 从供应区完成客人，但没有可服务的客人或可用房间`],
+        }
+      }
+
+      // 从无穷供应区填满客人需求到 placedResources
+      const fullResources: Partial<Resources> = {}
+      guestToServe.requirements.forEach(req => {
+        fullResources[req.type] = (fullResources[req.type] ?? 0) + req.amount
+      })
+
+      // 更新客人卡的 placedResources
+      const updatedWaitingArea = player.guestWaitingArea.map(g => {
+        if (g.id === guestToServe.id) {
+          return { ...g, placedResources: { ...g.placedResources, ...fullResources } }
+        }
+        return g
+      })
+
+      const playerWithFullResources = {
+        ...player,
+        guestWaitingArea: updatedWaitingArea,
+      }
+
+      // 找第一个匹配颜色的可用房间
+      const roomEntry = playerWithFullResources.builtRooms.find(r => {
+        if (r.capacity <= 0) return false
+        if (guestToServe.color === 'green') return true
+        return r.color === guestToServe.color
+      })
+
+      if (!roomEntry) {
+        return {
+          ...state,
+          logs: [...state.logs, `${player.name} 触发员工能力: 从供应区完成客人，但没有可用房间`],
+        }
+      }
+
+      // 执行服务（从客人卡上的 placedResources 扣除资源）
+      const guestIdx = playerWithFullResources.guestWaitingArea.findIndex(g => g.id === guestToServe.id)
+      const updatedGuest = playerWithFullResources.guestWaitingArea[guestIdx]
+
+      const newPlacedResources = { ...updatedGuest.placedResources }
+      updatedGuest.requirements.forEach(req => {
+        newPlacedResources[req.type] = (newPlacedResources[req.type] ?? 0) - req.amount
+      })
+
+      let newScore = playerWithFullResources.score + updatedGuest.victoryPoints
+      let newRes = { ...playerWithFullResources.resources }
+      if (updatedGuest.bonusResource && updatedGuest.bonusAmount) {
+        newRes[updatedGuest.bonusResource] += updatedGuest.bonusAmount
+      }
+
+      const builtRooms = playerWithFullResources.builtRooms.map(r =>
+        r.id === roomEntry.id ? { ...r, capacity: r.capacity - 1 } : r
+      )
+
+      const updatedPlayerFinal = {
+        ...playerWithFullResources,
+        resources: newRes,
+        score: newScore,
+        guestWaitingArea: playerWithFullResources.guestWaitingArea.filter((_, i) => i !== guestIdx),
+        guestServedArea: [...playerWithFullResources.guestServedArea, { ...updatedGuest, placedResources: newPlacedResources }],
+        builtRooms,
+      }
+
       return {
         ...state,
-        logs: [...state.logs, `${player.name} 触发员工能力: 从供应区完成客人(尚未实现)`],
+        players: state.players.map((p, i) => i === pIdx ? updatedPlayerFinal : p),
+        logs: [...state.logs, `${player.name} 触发员工能力: 从供应区完成${updatedGuest.name}(${updatedGuest.color})的服务，获得${updatedGuest.victoryPoints}分`],
       }
+    }
 
     default:
       return state
   }
+}
+
+// --- 永久能力检查辅助函数 ---
+
+function hasPermanentAbility(player: Player, ability: StaffAbility): boolean {
+  return player.staffCards.some(s => s.timing === 'permanent' && s.ability === ability)
 }
 
 // --- Guest Invite (付费邀请，咖啡厅容量3) ---
@@ -1288,6 +1418,34 @@ export function serveGuestWithRoom(player: Player, guestId: string, slotRow: num
     newRes[guest.bonusResource] += guest.bonusAmount
   }
 
+  // 永久能力：客人服务相关触发
+  // green_guest_plus_2vp - 导游 - 每完成一位绿色客人额外获得2分
+  if (guest.color === 'green' && hasPermanentAbility(player, 'green_guest_plus_2vp')) {
+    newScore += 2
+  }
+  // yellow_guest_plus_1kr - 按摩师 - 每完成一位黄色客人额外获得1克朗
+  if (guest.color === 'yellow' && hasPermanentAbility(player, 'yellow_guest_plus_1kr')) {
+    newRes = { ...newRes, money: newRes.money + 1 }
+  }
+  // red_guest_plus_2kr - 马夫 - 每完成一位红色客人额外获得2克朗
+  if (guest.color === 'red' && hasPermanentAbility(player, 'red_guest_plus_2kr')) {
+    newRes = { ...newRes, money: newRes.money + 2 }
+  }
+  // blue_guest_emperor_1 - 马厩管理员 - 每完成一位蓝色客人，皇帝轨道前进1格
+  let newEmperorTrack = player.emperorTrack
+  if (guest.color === 'blue' && hasPermanentAbility(player, 'blue_guest_emperor_1')) {
+    newEmperorTrack += 1
+  }
+  // serve_4dish_plus_4vp - 楼层男服务员 - 每完成一位需要4份食物的客人额外获得4分
+  const totalDishes = guest.requirements.reduce((sum, req) => sum + req.amount, 0)
+  if (totalDishes >= 4 && hasPermanentAbility(player, 'serve_4dish_plus_4vp')) {
+    newScore += 4
+  }
+  // guest_to_room_plus_1kr - 房屋管理员 - 每当有客人入住房间时，获得1克朗
+  if (hasPermanentAbility(player, 'guest_to_room_plus_1kr')) {
+    newRes = { ...newRes, money: newRes.money + 1 }
+  }
+
   // 房间容量减1
   const builtRooms = player.builtRooms.map(r =>
     r.id === slot.roomId ? { ...r, capacity: r.capacity - 1 } : r
@@ -1297,6 +1455,7 @@ export function serveGuestWithRoom(player: Player, guestId: string, slotRow: num
     ...player,
     resources: newRes,
     score: newScore,
+    emperorTrack: newEmperorTrack,
     guestWaitingArea: player.guestWaitingArea.filter((_, i) => i !== idx),
     guestServedArea: [...player.guestServedArea, { ...guest, placedResources: newPlacedResources }],
     builtRooms,
@@ -1333,6 +1492,34 @@ export function serveGuest(player: Player, guestId: string): Player {
     newRes[guest.bonusResource] += guest.bonusAmount
   }
 
+  // 永久能力：客人服务相关触发
+  // green_guest_plus_2vp - 导游 - 每完成一位绿色客人额外获得2分
+  if (guest.color === 'green' && hasPermanentAbility(player, 'green_guest_plus_2vp')) {
+    newScore += 2
+  }
+  // yellow_guest_plus_1kr - 按摩师 - 每完成一位黄色客人额外获得1克朗
+  if (guest.color === 'yellow' && hasPermanentAbility(player, 'yellow_guest_plus_1kr')) {
+    newRes = { ...newRes, money: newRes.money + 1 }
+  }
+  // red_guest_plus_2kr - 马夫 - 每完成一位红色客人额外获得2克朗
+  if (guest.color === 'red' && hasPermanentAbility(player, 'red_guest_plus_2kr')) {
+    newRes = { ...newRes, money: newRes.money + 2 }
+  }
+  // blue_guest_emperor_1 - 马厩管理员 - 每完成一位蓝色客人，皇帝轨道前进1格
+  let newEmperorTrack = player.emperorTrack
+  if (guest.color === 'blue' && hasPermanentAbility(player, 'blue_guest_emperor_1')) {
+    newEmperorTrack += 1
+  }
+  // serve_4dish_plus_4vp - 楼层男服务员 - 每完成一位需要4份食物的客人额外获得4分
+  const totalDishes = guest.requirements.reduce((sum, req) => sum + req.amount, 0)
+  if (totalDishes >= 4 && hasPermanentAbility(player, 'serve_4dish_plus_4vp')) {
+    newScore += 4
+  }
+  // guest_to_room_plus_1kr - 房屋管理员 - 每当有客人入住房间时，获得1克朗
+  if (hasPermanentAbility(player, 'guest_to_room_plus_1kr')) {
+    newRes = { ...newRes, money: newRes.money + 1 }
+  }
+
   const builtRooms = player.builtRooms.map(r =>
     r.id === roomEntry.id ? { ...r, capacity: r.capacity - 1 } : r
   )
@@ -1341,6 +1528,7 @@ export function serveGuest(player: Player, guestId: string): Player {
     ...player,
     resources: newRes,
     score: newScore,
+    emperorTrack: newEmperorTrack,
     guestWaitingArea: player.guestWaitingArea.filter((_, i) => i !== idx),
     guestServedArea: [...player.guestServedArea, { ...guest, placedResources: newPlacedResources }],
     builtRooms,
@@ -1624,8 +1812,21 @@ function applyEndGameStaffAbility(player: Player, staff: StaffCard, _allPlayers:
       return countOccupiedRoomsByColor(player, 'red') * 3
     case 'end_vp_per_room':
       return player.roomSlots.filter(s => s.roomId).length * 1
-    case 'end_copy_staff':
-      return 0
+    case 'end_copy_staff': {
+      // 复制另一位玩家的某张员工卡的终局计分效果
+      // 遍历所有其他玩家，找到 end_of_game 类型员工卡中 VP 最高的一张
+      let maxVp = 0
+      for (const otherPlayer of _allPlayers) {
+        if (otherPlayer.id === player.id) continue
+        for (const otherStaff of otherPlayer.staffCards) {
+          if (otherStaff.timing !== 'end_of_game') continue
+          if (otherStaff.ability === 'end_copy_staff') continue // 避免递归
+          const vp = applyEndGameStaffAbility(otherPlayer, otherStaff, _allPlayers)
+          maxVp = Math.max(maxVp, vp)
+        }
+      }
+      return maxVp
+    }
     case 'end_double_emperor_vp':
       return calculateEmperorScore(player.emperorTrack) * 2
     case 'end_vp_per_group':
