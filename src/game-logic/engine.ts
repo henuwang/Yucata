@@ -1807,7 +1807,7 @@ function applyEndGameStaffAbility(player: Player, staff: StaffCard, _allPlayers:
     case 'end_vp_per_column':
       return countFilledColumns(player) * 5
     case 'end_vp_per_politics':
-      return 0
+      return player.politicsMarkers.length * 5
     case 'end_vp_per_red_room':
       return countOccupiedRoomsByColor(player, 'red') * 3
     case 'end_vp_per_room':
@@ -1873,10 +1873,6 @@ export function performFinalScoring(state: GameState): GameState {
       .filter(s => s.timing === 'end_of_game')
       .reduce((sum, s) => sum + applyEndGameStaffAbility(p, s, allPlayers), 0)
     finalScore += endGameStaffScore
-
-    // 政治卡终局得分：标记在政治卡上的每个圆片得5分
-    const politicsScore = calculateEndGamePoliticsScore(p)
-    finalScore += politicsScore
 
     return { ...p, score: Math.max(0, finalScore) }
   })
@@ -2099,13 +2095,6 @@ export function placePoliticsMarker(state: GameState, playerId: string, cardId: 
     ...state, players,
     logs: [...state.logs, `${player.name} 在${card.name}上放置圆片，获得${card.victoryPoints}分`],
   }
-}
-
-/**
- * 终局政治卡得分（每个放置了标记的政治卡得5分）
- */
-export function calculateEndGamePoliticsScore(player: Player): number {
-  return player.politicsMarkers.length * 5
 }
 
 // ========================================================
