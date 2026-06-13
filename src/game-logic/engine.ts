@@ -1279,6 +1279,34 @@ export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard): Ga
         newRes[updatedGuest.bonusResource] += updatedGuest.bonusAmount
       }
 
+      // 永久能力：客人服务相关触发（与 serveGuestWithRoom 一致）
+      // green_guest_plus_2vp - 导游 - 每完成一位绿色客人额外获得2分
+      if (updatedGuest.color === 'green' && hasPermanentAbility(playerWithFullResources, 'green_guest_plus_2vp')) {
+        newScore += 2
+      }
+      // yellow_guest_plus_1kr - 按摩师 - 每完成一位黄色客人额外获得1克朗
+      if (updatedGuest.color === 'yellow' && hasPermanentAbility(playerWithFullResources, 'yellow_guest_plus_1kr')) {
+        newRes = { ...newRes, money: newRes.money + 1 }
+      }
+      // red_guest_plus_2kr - 马夫 - 每完成一位红色客人额外获得2克朗
+      if (updatedGuest.color === 'red' && hasPermanentAbility(playerWithFullResources, 'red_guest_plus_2kr')) {
+        newRes = { ...newRes, money: newRes.money + 2 }
+      }
+      // blue_guest_emperor_1 - 马厩管理员 - 每完成一位蓝色客人，皇帝轨道前进1格
+      let newEmperorTrack = playerWithFullResources.emperorTrack
+      if (updatedGuest.color === 'blue' && hasPermanentAbility(playerWithFullResources, 'blue_guest_emperor_1')) {
+        newEmperorTrack += 1
+      }
+      // serve_4dish_plus_4vp - 楼层男服务员 - 每完成一位需要4份食物的客人额外获得4分
+      const totalDishes = updatedGuest.requirements.reduce((sum, req) => sum + req.amount, 0)
+      if (totalDishes >= 4 && hasPermanentAbility(playerWithFullResources, 'serve_4dish_plus_4vp')) {
+        newScore += 4
+      }
+      // guest_to_room_plus_1kr - 房屋管理员 - 每当有客人入住房间时，获得1克朗
+      if (hasPermanentAbility(playerWithFullResources, 'guest_to_room_plus_1kr')) {
+        newRes = { ...newRes, money: newRes.money + 1 }
+      }
+
       const builtRooms = playerWithFullResources.builtRooms.map(r =>
         r.id === roomEntry.id ? { ...r, capacity: r.capacity - 1 } : r
       )
@@ -1287,6 +1315,7 @@ export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard): Ga
         ...playerWithFullResources,
         resources: newRes,
         score: newScore,
+        emperorTrack: newEmperorTrack ?? playerWithFullResources.emperorTrack,
         guestWaitingArea: playerWithFullResources.guestWaitingArea.filter((_, i) => i !== guestIdx),
         guestServedArea: [...playerWithFullResources.guestServedArea, { ...updatedGuest, placedResources: newPlacedResources }],
         builtRooms,
