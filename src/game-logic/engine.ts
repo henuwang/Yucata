@@ -1258,8 +1258,26 @@ export function allocatePendingResources(
 
 // --- One-Time Staff Abilities ---
 
-export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard): GameState {
-  const pIdx = state.currentPlayerIndex
+/** 员工能力/皇帝板块直接发放的餐饮：规则不允许攒在手上，立即放入厨房 */
+function grantKitchenItems(state: GameState, playerId: string, items: Partial<Resources>): GameState {
+  return {
+    ...state,
+    players: state.players.map(p => p.id === playerId ? {
+      ...p,
+      kitchen: {
+        ...p.kitchen,
+        food: p.kitchen.food + (items.food ?? 0),
+        wine: p.kitchen.wine + (items.wine ?? 0),
+        coffee: p.kitchen.coffee + (items.coffee ?? 0),
+        cake: p.kitchen.cake + (items.cake ?? 0),
+      },
+    } : p),
+  }
+}
+
+export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard, ownerId?: string): GameState {
+  const ownerIdx = ownerId ? state.players.findIndex(p => p.id === ownerId) : -1
+  const pIdx = ownerIdx === -1 ? state.currentPlayerIndex : ownerIdx
   const player = state.players[pIdx]
 
   switch (staff.ability) {
@@ -1274,66 +1292,32 @@ export function applyOneTimeStaffAbility(state: GameState, staff: StaffCard): Ga
 
     case 'get_4_coffee':
       return {
-        ...state,
-        players: state.players.map((p, i) =>
-          i === pIdx
-            ? { ...p, resources: { ...p.resources, coffee: p.resources.coffee + 4 } }
-            : p
-        ),
-        logs: [...state.logs, `${player.name} 触发员工能力: 咖啡+4`],
+        ...grantKitchenItems(state, player.id, { coffee: 4 }),
+        logs: [...state.logs, `${player.name} 触发员工能力: 咖啡+4（立即放入厨房）`],
       }
 
     case 'get_one_of_each':
       return {
-        ...state,
-        players: state.players.map((p, i) =>
-          i === pIdx
-            ? {
-                ...p,
-                resources: {
-                  ...p.resources,
-                  food: p.resources.food + 1,
-                  cake: p.resources.cake + 1,
-                  wine: p.resources.wine + 1,
-                  coffee: p.resources.coffee + 1,
-                },
-              }
-            : p
-        ),
-        logs: [...state.logs, `${player.name} 触发员工能力: 各食物+1`],
+        ...grantKitchenItems(state, player.id, { food: 1, cake: 1, wine: 1, coffee: 1 }),
+        logs: [...state.logs, `${player.name} 触发员工能力: 各餐饮+1（立即放入厨房）`],
       }
 
     case 'get_4_strudel':
       return {
-        ...state,
-        players: state.players.map((p, i) =>
-          i === pIdx
-            ? { ...p, resources: { ...p.resources, food: p.resources.food + 4 } }
-            : p
-        ),
-        logs: [...state.logs, `${player.name} 触发员工能力: 面包+4`],
+        ...grantKitchenItems(state, player.id, { food: 4 }),
+        logs: [...state.logs, `${player.name} 触发员工能力: 面包+4（立即放入厨房）`],
       }
 
     case 'get_4_cake':
       return {
-        ...state,
-        players: state.players.map((p, i) =>
-          i === pIdx
-            ? { ...p, resources: { ...p.resources, cake: p.resources.cake + 4 } }
-            : p
-        ),
-        logs: [...state.logs, `${player.name} 触发员工能力: 蛋糕+4`],
+        ...grantKitchenItems(state, player.id, { cake: 4 }),
+        logs: [...state.logs, `${player.name} 触发员工能力: 蛋糕+4（立即放入厨房）`],
       }
 
     case 'get_4_wine':
       return {
-        ...state,
-        players: state.players.map((p, i) =>
-          i === pIdx
-            ? { ...p, resources: { ...p.resources, wine: p.resources.wine + 4 } }
-            : p
-        ),
-        logs: [...state.logs, `${player.name} 触发员工能力: 红酒+4`],
+        ...grantKitchenItems(state, player.id, { wine: 4 }),
+        logs: [...state.logs, `${player.name} 触发员工能力: 红酒+4（立即放入厨房）`],
       }
 
     case 'turn_2_rooms_occupied': {
@@ -1785,16 +1769,16 @@ function applyEmperorEffect(player: Player, effect: { amount?: number; type: str
     case 'score':
       return { ...player, score: Math.max(0, player.score + (effect.amount ?? 0)) }
     case 'food':
-      return { ...player, resources: { ...player.resources, food: player.resources.food + (effect.amount ?? 0) } }
+      return { ...player, kitchen: { ...player.kitchen, food: player.kitchen.food + (effect.amount ?? 0) } }
     case 'mixed_food':
       return {
         ...player,
-        resources: {
-          ...player.resources,
-          food: player.resources.food + 1,
-          cake: player.resources.cake + 1,
-          wine: player.resources.wine + 1,
-          coffee: player.resources.coffee + 1,
+        kitchen: {
+          ...player.kitchen,
+          food: player.kitchen.food + 1,
+          cake: player.kitchen.cake + 1,
+          wine: player.kitchen.wine + 1,
+          coffee: player.kitchen.coffee + 1,
         },
       }
     case 'score_per_staff':
@@ -2124,7 +2108,7 @@ export function resolveBonusChoice(
       logs: [...state.logs, `${player.name} ${choice.description}: 打出员工卡 ${staff.name}，花费${cost}元`],
     }
     const popped = pop(withoutOption)
-    return staff.timing === 'one_time' ? applyOneTimeStaffAbility(popped, staff) : popped
+    return staff.timing === 'one_time' ? applyOneTimeStaffAbility(popped, staff, choice.playerId) : popped
   }
 
   const placed = tryPlaceRooms(player, state.availableRooms, payload.placements ?? [], 1,
