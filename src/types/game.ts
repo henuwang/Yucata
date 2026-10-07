@@ -273,5 +273,10 @@ export interface GameState {
 
 export function isGroupFullyOccupied(player: Player, groupId: number): boolean {
   const groupSlots = player.roomSlots.filter(s => s.groupId === groupId)
-  return groupSlots.length > 0 && groupSlots.every(s => s.roomId !== null)
+  if (groupSlots.length === 0) return false
+  return groupSlots.every(s => {
+    if (!s.roomId) return false
+    const builtRoom = player.builtRooms.find(r => r.id === s.roomId)
+    return !!builtRoom && builtRoom.capacity === 0
+  })
 }

@@ -1,5 +1,5 @@
 import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, StaffAbility, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus } from '../types/game'
-import { createResources, createPlayerExtraActionState } from '../types/game'
+import { createResources, createPlayerExtraActionState, isGroupFullyOccupied } from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
 import { staffCards } from '../data/staff'
@@ -2319,8 +2319,7 @@ export function canMoveKitchenToGuest(player: Player, guest: GuestCard): boolean
  * 检查某个组是否已完全入住
  */
 export function checkGroupFullyOccupied(player: Player, groupId: number): boolean {
-  const groupSlots = player.roomSlots.filter(s => s.groupId === groupId)
-  return groupSlots.length > 0 && groupSlots.every(s => s.roomId !== null)
+  return isGroupFullyOccupied(player, groupId)
 }
 
 /**
