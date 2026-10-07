@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { turnOrderTiles } from '../data/turnOrder'
 import type { ExtraAction } from '../types/game'
+import type { RoomPlacement } from '../game-logic/engine'
 
 const AREA_CONFIG: Record<number, { name: string; desc: string; color: string; icon: string }> = {
   1: { name: '食材市场', desc: '取食物或蛋糕', color: '#e74c3c', icon: '🥖' },
   2: { name: '酒水市场', desc: '取红酒或咖啡', color: '#e67e22', icon: '🍷' },
-  3: { name: '建造局', desc: '建造一个房间', color: '#f1c40f', icon: '🏗️' },
+  3: { name: '建造局', desc: '准备客房(强度=房间数)', color: '#f1c40f', icon: '🏗️' },
   4: { name: '皇帝觐见', desc: '皇帝轨道或金钱', color: '#2ecc71', icon: '👑' },
   5: { name: '人力市场', desc: '雇佣员工(折扣)', color: '#3498db', icon: '👔' },
   6: { name: '黑市', desc: '花1元模拟其他区', color: '#9b59b6', icon: '🕶️' },
@@ -700,7 +701,7 @@ function ActionAreaTab({
   areaCounts, takeAreaAction,
 }: {
   areaCounts: Record<number, number>
-  takeAreaAction: (area: number, sub?: string, row?: number, col?: number) => void
+  takeAreaAction: (area: number, sub?: string, placements?: RoomPlacement[]) => void
 }) {
   const [selected, setSelected] = useState<number | null>(null)
   const [splitVal, setSplitVal] = useState(0)
@@ -779,7 +780,10 @@ function ActionAreaTab({
       {selected === 3 && !inRoomPicker && (
         <div style={{ background: '#0f0f1a', borderRadius: 10, padding: 16, border: '1px solid #3a3a5a', marginTop: 12 }}>
           <div style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600, marginBottom: 8 }}>
-            🏗️ 建造局 (骰子骰子数: {areaCounts[3]})
+            🏗️ 建造局 (本次可准备 {areaCounts[3] ?? 0} 间客房)
+          </div>
+          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 12 }}>
+            每间支付所在楼层费用（楼层数 -1），需与已有客房相邻；空酒店时首间须放在左下角
           </div>
           <button onClick={() => setInRoomPicker(true)}
             style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a7db5', background: '#1a2744', color: '#e0e0e0', cursor: 'pointer', fontSize: 12, marginRight: 8 }}>
@@ -793,7 +797,8 @@ function ActionAreaTab({
       )}
       {selected === 3 && inRoomPicker && (
         <RoomPickerInline
-          onSelect={(roomId, slotRow, slotCol) => { takeAreaAction(3, roomId, slotRow, slotCol); setSelected(null); setInRoomPicker(false) }}
+          maxRooms={areaCounts[3] ?? 0}
+          onConfirm={placements => { takeAreaAction(3, undefined, placements); setSelected(null); setInRoomPicker(false) }}
           onBack={() => setInRoomPicker(false)}
         />
       )}
@@ -1343,15 +1348,30 @@ function StaffTab({ availableStaff, player, hireStaffMember }: {
 // Room Picker Inline
 // ════════════════════════════════════════
 
-function RoomPickerInline({ onSelect, onBack }: {
-  onSelect: (roomId: string, slotRow: number, slotCol: number) => void
+function RoomPickerInline({ maxRooms, onConfirm, onBack }: {
+  maxRooms: number
+  onConfirm: (placements: RoomPlacement[]) => void
   onBack: () => void
 }) {
   const rooms = useGameStore(s => s.availableRooms)
   const player = useGameStore(s => s.players[s.currentPlayerIndex])
   const [pickedId, setPickedId] = useState<string | null>(null)
+  const [placements, setPlacements] = useState<RoomPlacement[]>([])
+
+  const slotAt = (row: number, col: number) =>
+    player.roomSlots.find((s: any) => s.row === row && s.col === col)
+
+  const spent = placements.reduce((sum, p) => sum + (slotAt(p.row, p.col)?.cost ?? 0), 0)
+  const remaining = (player.resources.money ?? 0) - spent
+
+  // 把本次已选客房铺到版图上预览，供占位与相邻判断使用
+  const previewSlots = player.roomSlots.map((slot: any) => {
+    const added = placements.find(p => p.row === slot.row && p.col === slot.col)
+    return added ? { ...slot, roomId: added.roomId } : slot
+  })
 
   const pickedRoom = pickedId ? rooms.find((r: any) => r.id === pickedId) : null
+  const emptyHotel = previewSlots.every((s: any) => !s.roomId)
 
   if (pickedRoom && pickedId) {
     return (
@@ -1366,27 +1386,33 @@ function RoomPickerInline({ onSelect, onBack }: {
           </button>
         </div>
         <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10 }}>
-          选择空位放置 (同色相邻)
+          {(emptyHotel ? '首间须放在左下角(0,0)' : '选择空位放置（同色、需相邻）') + '，剩余资金 ' + remaining + ' 元'}
         </div>
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, marginBottom: 8,
-        }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, marginBottom: 8 }}>
           {player.roomSlots.map((slot: any, i: number) => {
-            const canPlace = slot.roomId === null &&
-              slot.color === pickedRoom.color &&
-              player.roomSlots.some((s: any) => s.roomId && Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1)
+            const takenInThisAction = placements.some(p => p.row === slot.row && p.col === slot.col)
+            const adjacent = emptyHotel
+              ? slot.row === 0 && slot.col === 0
+              : previewSlots.some((s: any) =>
+                  s.roomId && Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1)
+            const canPlace = !slot.roomId && !takenInThisAction &&
+              slot.color === pickedRoom.color && adjacent && slot.cost <= remaining
             return (
-              <div key={i} onClick={canPlace ? () => onSelect(pickedId, slot.row, slot.col) : undefined} style={{
+              <div key={i} onClick={canPlace ? () => {
+                setPlacements(prev => [...prev, { roomId: pickedId, row: slot.row, col: slot.col }])
+                setPickedId(null)
+              } : undefined} style={{
                 width: '100%', aspectRatio: '1', borderRadius: 6,
                 background: slot.roomId ? (slot.color === 'blue' ? '#1a2744' : slot.color === 'yellow' ? '#3a3520' : '#3a1a1a') :
                   canPlace ? '#2a3a2a' : '#1a1a2e',
                 border: '1px solid ' + (canPlace ? '#2ecc71' : slot.roomId ? '#4a7db5' : '#2a2a4a'),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 fontSize: 9, color: canPlace ? '#2ecc71' : '#666',
                 cursor: canPlace ? 'pointer' : 'default',
                 fontWeight: canPlace ? 600 : 400,
               }}>
-                {slot.roomId ? '🏠' : canPlace ? '+' : ''}
+                <span>{slot.roomId ? '🏠' : canPlace ? '+' : ''}</span>
+                {!slot.roomId && <span style={{ fontSize: 8 }}>{slot.cost}元</span>}
               </div>
             )
           })}
@@ -1402,34 +1428,66 @@ function RoomPickerInline({ onSelect, onBack }: {
   return (
     <div style={{ background: '#0f0f1a', borderRadius: 10, padding: 16, border: '1px solid #3a3a5a', marginTop: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>🏗️ 选择房间</span>
+        <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
+          {'🏗️ 选择房间 (' + placements.length + '/' + maxRooms + ')'}
+        </span>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
           {'<- 返回'}
         </button>
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {rooms.length === 0 && (
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        {placements.length === 0 && rooms.length === 0 && (
           <div style={{ color: '#666', fontSize: 12, padding: 12, textAlign: 'center', width: '100%' }}>
             没有可用房间
           </div>
         )}
         {rooms.slice(0, 8).map((r: any) => {
-          const affordable = (player.resources.money ?? 0) >= (r.cost?.money ?? 0)
+          const selectable = placements.length < maxRooms
           return (
-            <div key={r.id} onClick={affordable ? () => setPickedId(r.id) : undefined} style={{
-              background: pickedId === r.id ? '#1a2744' : '#2a2a4a',
-              border: '1px solid ' + (affordable ? '#4a7db5' : '#3a3a3a'),
+            <div key={r.id} onClick={selectable ? () => setPickedId(r.id) : undefined} style={{
+              background: '#2a2a4a',
+              border: '1px solid ' + (selectable ? (GUEST_COLORS[r.color]?.border ?? '#4a7db5') : '#3a3a3a'),
               borderRadius: 8, padding: '6px 10px',
-              cursor: affordable ? 'pointer' : 'not-allowed',
-              opacity: affordable ? 1 : 0.35, minWidth: 80,
+              cursor: selectable ? 'pointer' : 'not-allowed',
+              opacity: selectable ? 1 : 0.35, minWidth: 80,
             }}>
               <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 11 }}>{r.name}</div>
               <div style={{ color: '#f1c40f', fontSize: 10 }}>+{r.victoryPoints}分</div>
-              <div style={{ fontSize: 9, color: '#f39c12' }}>{'💰' + (r.cost?.money ?? 0)}</div>
+              <div style={{ fontSize: 9, color: '#888' }}>{GUEST_COLORS[r.color]?.label ?? r.color}</div>
             </div>
           )
         })}
       </div>
+
+      {placements.length > 0 && (
+        <div style={{ borderTop: '1px solid #2a2a4a', paddingTop: 8, marginBottom: 10 }}>
+          {placements.map((p, i) => {
+            const room = rooms.find((r: any) => r.id === p.roomId)
+            const slot = slotAt(p.row, p.col)
+            return (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: '#bbb', marginBottom: 4 }}>
+                <span>{(room?.name ?? p.roomId) + ' @ (' + p.row + ',' + p.col + ')'}</span>
+                <span>
+                  <span style={{ color: '#f39c12' }}>{'💰' + (slot?.cost ?? 0) + '元  '}</span>
+                  <button onClick={() => setPlacements(prev => prev.filter((_, j) => j !== i))}
+                    style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: 12 }}>
+                    ✕
+                  </button>
+                </span>
+              </div>
+            )
+          })}
+          <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+            {'合计 ' + spent + ' 元，剩余 ' + remaining + ' 元'}
+          </div>
+        </div>
+      )}
+
+      <button onClick={() => onConfirm(placements)} disabled={placements.length === 0}
+        style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #2ecc71', background: placements.length === 0 ? '#2a2a4a' : '#1a3a2a', color: placements.length === 0 ? '#666' : '#e0e0e0', cursor: placements.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+        {'✅ 确认建造 ' + placements.length + ' 间'}
+      </button>
     </div>
   )
 }

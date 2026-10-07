@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { GameState, Player, Resources } from '../types/game'
+import type { RoomPlacement } from '../game-logic/engine'
 import {
   initializeGame,
   rollAllDice,
@@ -45,7 +46,7 @@ interface GameStore extends GameState {
   autoPlaceRoom: (slotRow: number, slotCol: number) => void
   skipSetupRoom: () => void
   rollDice: () => void
-  takeAreaAction: (areaValue: number, subAction?: string, slotRow?: number, slotCol?: number) => void
+  takeAreaAction: (areaValue: number, subAction?: string, placements?: RoomPlacement[]) => void
   skipAction: () => void
   removeDieAndReroll: () => void
   inviteGuestAction: (guestId: string) => void
@@ -140,9 +141,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   // 任务2：使用新的 performTurnAction 处理行动
-  takeAreaAction: (areaValue: number, subAction?: string, slotRow?: number, slotCol?: number) => {
+  takeAreaAction: (areaValue: number, subAction?: string, placements?: RoomPlacement[]) => {
     const state = get()
-    const next = performTurnAction(state, areaValue, subAction, slotRow, slotCol)
+    const next = performTurnAction(state, areaValue, subAction, placements)
     set({ ...next })
   },
 

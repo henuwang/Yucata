@@ -740,53 +740,73 @@ export function performAreaAction2(state: GameState, takeCoffee: number): GameSt
   }
 }
 
+export interface RoomPlacement {
+  roomId: string
+  row: number
+  col: number
+}
+
 /**
- * 行动区3：建造局 - 建造一个房间
+ * 行动区3：建造局 - 强度(区3骰子数)即可准备的房间数，每间费用为所在行的楼层费用
  */
-export function performAreaAction3(state: GameState, roomId: string, slotRow: number, slotCol: number): GameState {
+export function performAreaAction3(state: GameState, placements: RoomPlacement[]): GameState {
   const n = state.areaDice[3] ?? 0
-  if (n <= 0) return state
+  if (n <= 0 || placements.length === 0 || placements.length > n) return state
 
   const player = state.players[state.currentPlayerIndex]
-  const room = state.availableRooms.find(r => r.id === roomId)
-  if (!room || player.builtRooms.some(r => r.id === roomId)) return state
+  let slots = player.roomSlots
+  let builtRooms = player.builtRooms
+  let availableRooms = state.availableRooms
+  let money = player.resources.money
+  let gainedScore = 0
+  const logs = [...state.logs]
 
-  const slotIdx = player.roomSlots.findIndex(s => s.row === slotRow && s.col === slotCol)
-  if (slotIdx === -1) return state
-  const slot = player.roomSlots[slotIdx]
-  if (slot.roomId !== null) return state
-  if (slot.color !== room.color) return state
+  for (const placement of placements) {
+    const roomIdx = availableRooms.findIndex(r => r.id === placement.roomId)
+    if (roomIdx === -1 || builtRooms.some(r => r.id === placement.roomId)) return state
+    const room = availableRooms[roomIdx]
 
-  const hasAdjacent = player.roomSlots.some(s =>
-    s.roomId &&
-    Math.abs(s.row - slotRow) + Math.abs(s.col - slotCol) === 1
-  )
-  if (!hasAdjacent) return state
+    const slotIdx = slots.findIndex(s => s.row === placement.row && s.col === placement.col)
+    if (slotIdx === -1) return state
+    const slot = slots[slotIdx]
+    if (slot.roomId !== null || slot.color !== room.color) return state
 
-  const cost = room.cost.money ?? 0
-  if (player.resources.money < cost) return state
+    // 首间客房必须落在左下角，之后必须与已准备客房相邻
+    if (slots.every(s => s.roomId === null)) {
+      if (slot.row !== 0 || slot.col !== 0) return state
+    } else {
+      const hasAdjacent = slots.some(s =>
+        s.roomId !== null &&
+        Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1
+      )
+      if (!hasAdjacent) return state
+    }
+    if (money < slot.cost) return state
 
-  const newSlots = player.roomSlots.map((s, i) =>
-    i === slotIdx ? { ...s, roomId: room.id } : s
-  )
-  const newRes = { ...player.resources, money: player.resources.money - cost }
+    money -= slot.cost
+    gainedScore += room.victoryPoints
+    slots = slots.map((s, i) => i === slotIdx ? { ...s, roomId: room.id } : s)
+    builtRooms = [...builtRooms, { ...room, isBuilt: true }]
+    availableRooms = availableRooms.filter((_, i) => i !== roomIdx)
+    logs.push(`${player.name} 准备客房 ${room.name} 于(${slot.row},${slot.col})，支付楼层费用 ${slot.cost} 元`)
+  }
+
   const players = state.players.map((p, i) =>
     i === state.currentPlayerIndex ? {
       ...p,
-      resources: newRes,
-      score: p.score + room.victoryPoints,
-      builtRooms: [...p.builtRooms, { ...room, isBuilt: true }],
-      roomSlots: newSlots,
+      resources: { ...p.resources, money },
+      score: p.score + gainedScore,
+      builtRooms,
+      roomSlots: slots,
     } : p
   )
-  const availableRooms = state.availableRooms.filter(r => r.id !== roomId)
 
   const afterRemove = removeOneFromAreaDice(state, 3)
   const dice = removeOneDieFromArea(state.dice, 3)
 
   return {
     ...afterRemove, dice, players, availableRooms,
-    logs: [...state.logs, `${player.name} 执行行动区3: 在(${slotRow},${slotCol})建造${room.name}`],
+    logs: [...logs, `${player.name} 执行行动区3: 准备 ${placements.length} 间客房`],
   }
 }
 
@@ -967,8 +987,7 @@ export function performTurnAction(
   state: GameState,
   areaValue: number,
   subAction?: string,
-  slotRow?: number,
-  slotCol?: number,
+  placements?: RoomPlacement[],
 ): GameState {
   let afterAction: GameState
 
@@ -980,7 +999,7 @@ export function performTurnAction(
       afterAction = performAreaAction2(state, parseInt(subAction || '0'))
       break
     case 3:
-      afterAction = performAreaAction3(state, subAction || '', slotRow ?? -1, slotCol ?? -1)
+      afterAction = performAreaAction3(state, placements ?? [])
       break
     case 4:
       afterAction = performAreaAction4(state, parseInt(subAction || '0'))
