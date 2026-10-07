@@ -11,6 +11,7 @@ import { KitchenPanel } from './KitchenPanel'
 import { WinnerScreen } from './WinnerScreen'
 import { SetupStaffPhase, SetupGuestPhase, SetupRoomPhase } from './SetupPhase'
 import { PenaltyDialog } from './PenaltyDialog'
+import { BonusChoiceDialog } from './BonusChoiceDialog'
 
 const REQ_ICONS: Record<string, string> = {
   food: '🥖', wine: '🍷', coffee: '☕', cake: '🍰', money: '💰',
@@ -19,11 +20,16 @@ const REQ_ICONS: Record<string, string> = {
 export function GameBoard() {
   const phase = useGameStore(s => s.phase)
   const pendingPenalty = useGameStore(s => s.pendingPenalty)
+  const pendingBonusChoices = useGameStore(s => s.pendingBonusChoices)
   const players = useGameStore(s => s.players)
   const currentIdx = useGameStore(s => s.currentPlayerIndex)
 
   if (pendingPenalty) {
     return <PenaltyDialog />
+  }
+
+  if (pendingBonusChoices && pendingBonusChoices.length > 0) {
+    return <BonusChoiceDialog />
   }
 
   if (phase === 'game_end') {

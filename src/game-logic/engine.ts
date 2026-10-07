@@ -1,4 +1,4 @@
-import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, StaffAbility, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus } from '../types/game'
+import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, StaffAbility, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus, EmperorEffect, EmperorTile, BonusChoice, HotelBoardSlot } from '../types/game'
 import {
   createResources,
   createPlayerExtraActionState,
@@ -124,6 +124,7 @@ export function initializeGame(playerCount: number): GameState {
     trashDiceCount: 0,
     pendingAllocation: null,
     pendingStaffSelection: null,
+    pendingBonusChoices: null,
   }
 }
 
@@ -652,22 +653,25 @@ export function rerollRemainingDice(state: GameState): GameState {
 /**
  * 处理本轮结束
  */
+/** 皇帝计分的待处理项（惩罚选择 / 收益选择）结算完后才能继续流程 */
+export function hasPendingEmperorBusiness(state: GameState): boolean {
+  return !!state.pendingPenalty || (state.pendingBonusChoices?.length ?? 0) > 0
+}
+
+export function continueAfterPending(state: GameState): GameState {
+  if (hasPendingEmperorBusiness(state)) return state
+  if (state.roundNumber >= 7) return performFinalScoring(state)
+  return startNextRound(state)
+}
+
 function handleRoundEnd(state: GameState): GameState {
   if (state.roundNumber >= 7) {
-    const withEmperor = performEmperorScoring(state)
-    if (withEmperor.pendingPenalty) {
-      return withEmperor
-    }
-    return performFinalScoring(withEmperor)
-  } else {
-    const afterScoring = (state.roundNumber === 3 || state.roundNumber === 5)
-      ? performEmperorScoring(state)
-      : state
-    if ((afterScoring as GameState).pendingPenalty) {
-      return afterScoring
-    }
-    return startNextRound(afterScoring as GameState)
+    return continueAfterPending(performEmperorScoring(state))
   }
+  const afterScoring = (state.roundNumber === 3 || state.roundNumber === 5)
+    ? performEmperorScoring(state)
+    : state
+  return continueAfterPending(afterScoring)
 }
 
 // ========================================================
@@ -698,20 +702,25 @@ export function performAreaAction1(state: GameState, takeCake: number): GameStat
     logs.push(`${player.name} 触发永久能力【餐厅经理】: 额外获得1份面包`)
   }
 
-  // 永久能力：die_1_2_build_room - 装潢师 - 可额外准备1个房间
-  if (hasPermanentAbility(player, 'die_1_2_build_room')) {
-    logs.push(`${player.name} 触发永久能力【装潢师】: 可额外准备1个房间`)
-  }
-
   // 不直接加到 player.resources，而是设置 pendingAllocation
   const afterRemove = removeOneFromAreaDice(state, 1)
   const dice = removeOneDieFromArea(state.dice, 1)
 
-  return {
+  let result: GameState = {
     ...afterRemove, dice,
     pendingAllocation: { food, cake },
     logs: [...logs, `${player.name} 执行行动区1: 获得食物×${food} 蛋糕×${cake}，请分配`],
   }
+
+  // 永久能力：die_1_2_build_room - 装潢师 - 可额外准备1个房间
+  if (hasPermanentAbility(player, 'die_1_2_build_room') && state.availableRooms.length > 0) {
+    result = queueBonusChoice(result, {
+      playerId: player.id, kind: 'room',
+      description: '装潢师: 可额外准备1个房间（支付楼层费用）',
+    })
+  }
+
+  return result
 }
 
 /**
@@ -738,20 +747,24 @@ export function performAreaAction2(state: GameState, takeCoffee: number): GameSt
     logs.push(`${player.name} 触发永久能力【餐厅经理】: 额外获得1份红酒`)
   }
 
-  // 永久能力：die_1_2_build_room - 装潢师 - 可额外准备1个房间
-  if (hasPermanentAbility(player, 'die_1_2_build_room')) {
-    logs.push(`${player.name} 触发永久能力【装潢师】: 可额外准备1个房间`)
-  }
-
   // 不直接加到 player.resources，而是设置 pendingAllocation
   const afterRemove = removeOneFromAreaDice(state, 2)
   const dice = removeOneDieFromArea(state.dice, 2)
 
-  return {
+  let result: GameState = {
     ...afterRemove, dice,
     pendingAllocation: { wine, coffee },
     logs: [...logs, `${player.name} 执行行动区2: 获得红酒×${wine} 咖啡×${coffee}，请分配`],
   }
+
+  if (hasPermanentAbility(player, 'die_1_2_build_room') && state.availableRooms.length > 0) {
+    result = queueBonusChoice(result, {
+      playerId: player.id, kind: 'room',
+      description: '装潢师: 可额外准备1个房间（支付楼层费用）',
+    })
+  }
+
+  return result
 }
 
 export interface RoomPlacement {
@@ -771,11 +784,22 @@ interface PlacementResult {
  * 每间支付所在楼层费用。校验不过返回 null，整个行动作废（不允许部分成功）。
  * 行动区3 与 黑市模拟区3 共用同一套规则。
  */
+/**
+ * 准备一间客房的实际费用：楼层费用，减去对应颜色的免费员工能力（管家/司机/花店店员）
+ */
+export function roomPlacementCost(player: Player, room: RoomTile, slot: HotelBoardSlot): number {
+  if (room.color === 'blue' && hasPermanentAbility(player, 'free_room_blue')) return 0
+  if (room.color === 'red' && hasPermanentAbility(player, 'free_room_red')) return 0
+  if (room.color === 'yellow' && hasPermanentAbility(player, 'free_room_yellow')) return 0
+  return slot.cost
+}
+
 function tryPlaceRooms(
   player: Player,
   availableRooms: RoomTile[],
   placements: RoomPlacement[],
   maxRooms: number,
+  opts: { freeCost?: boolean; maxRow?: number } = {},
 ): PlacementResult | null {
   if (placements.length === 0 || placements.length > maxRooms) return null
 
@@ -795,6 +819,7 @@ function tryPlaceRooms(
     if (slotIdx === -1) return null
     const slot = slots[slotIdx]
     if (slot.roomId !== null || slot.color !== room.color) return null
+    if (opts.maxRow !== undefined && slot.row > opts.maxRow) return null
 
     if (slots.every(s => s.roomId === null)) {
       if (slot.row !== 0 || slot.col !== 0) return null
@@ -805,14 +830,15 @@ function tryPlaceRooms(
       )
       if (!hasAdjacent) return null
     }
-    if (money < slot.cost) return null
+    const cost = opts.freeCost ? 0 : roomPlacementCost(player, room, slot)
+    if (money < cost) return null
 
-    money -= slot.cost
+    money -= cost
     gainedScore += room.victoryPoints
     slots = slots.map((s, i) => i === slotIdx ? { ...s, roomId: room.id } : s)
     builtRooms = [...builtRooms, { ...room, isBuilt: true }]
     rooms = rooms.filter((_, i) => i !== roomIdx)
-    logs.push(`${player.name} 准备客房 ${room.name} 于(${slot.row},${slot.col})，支付楼层费用 ${slot.cost} 元`)
+    logs.push(`${player.name} 准备客房 ${room.name} 于(${slot.row},${slot.col})，${cost === 0 ? '免费' : `支付楼层费用 ${cost} 元`}`)
   }
 
   return {
@@ -839,17 +865,35 @@ export function performAreaAction3(state: GameState, placements: RoomPlacement[]
   const placed = tryPlaceRooms(player, state.availableRooms, placements, n)
   if (!placed) return state
 
-  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? placed.player : p)
+  // 永久能力：室内设计师(拿取3点骰子+5分)、女管家(拿取3或4点骰子+2分)
+  const abilityScore =
+    (hasPermanentAbility(player, 'die_3_plus_5vp') ? 5 : 0) +
+    (hasPermanentAbility(player, 'die_3_4_plus_2vp') ? 2 : 0)
+  const players = state.players.map((p, i) => i === state.currentPlayerIndex
+    ? { ...placed.player, score: placed.player.score + abilityScore } : p)
 
   const afterRemove = removeOneFromAreaDice(state, 3)
   const dice = removeOneDieFromArea(state.dice, 3)
 
-  return {
+  const result: GameState = {
     ...afterRemove, dice, players, availableRooms: placed.availableRooms,
-    logs: [...state.logs, ...placed.logs, `${player.name} 执行行动区3: 准备 ${placements.length} 间客房`],
+    logs: [
+      ...state.logs, ...placed.logs,
+      ...(abilityScore > 0 ? [`${player.name} 员工能力加分: +${abilityScore}`] : []),
+      `${player.name} 执行行动区3: 准备 ${placements.length} 间客房`,
+    ],
   }
-}
 
+  // 永久能力：die_3_hire_staff - 人事主管 - 拿取3点骰子时可免费雇佣1张员工卡
+  if (hasPermanentAbility(player, 'die_3_hire_staff') && state.availableStaff.length > 0) {
+    return queueBonusChoice(result, {
+      playerId: player.id, kind: 'staff', description: '人事主管: 可免费雇佣1张员工卡',
+      staffOptions: state.availableStaff.map(c => c.id), freeStaff: true,
+    })
+  }
+
+  return result
+}
 /**
  * 行动区4：皇帝觐见 - 皇帝轨道或金钱
  */
@@ -879,11 +923,13 @@ export function performAreaAction4(state: GameState, toEmperor: number): GameSta
   }
 
   const newRes = { ...player.resources, money: player.resources.money + money }
+  // 永久能力：女管家 - 拿取点数3或4的骰子额外获得2分
+  const empAbility = hasPermanentAbility(player, 'die_3_4_plus_2vp') ? 2 : 0
   const players = state.players.map((p, i) =>
     i === state.currentPlayerIndex ? {
       ...p, resources: newRes,
       emperorTrack: p.emperorTrack + emperor,
-      score: p.score + extraScore,
+      score: p.score + extraScore + empAbility,
     } : p
   )
 
@@ -892,7 +938,7 @@ export function performAreaAction4(state: GameState, toEmperor: number): GameSta
 
   return {
     ...afterRemove, dice, players,
-    logs: [...logs, `${player.name} 执行行动区4: 皇帝+${emperor} 金钱+${money}`],
+    logs: [...logs, `${player.name} 执行行动区4: 皇帝+${emperor} 金钱+${money}${empAbility > 0 ? ' 员工能力+2分' : ''}`],
   }
 }
 
@@ -943,17 +989,22 @@ export function performAreaAction5(state: GameState, staffId: string): GameState
   if (n <= 0) return state
 
   const player = state.players[state.currentPlayerIndex]
-  const hired = tryHireStaff(player, state.availableStaff, staffId, n)
+  // 永久能力：衣帽间服务员 - 拿取点数5的骰子时额外获得2克朗折扣
+  const discount = n + (hasPermanentAbility(player, 'die_5_discount_2') ? 2 : 0)
+  const hired = tryHireStaff(player, state.availableStaff, staffId, discount)
   if (!hired) return state
 
-  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? hired.player : p)
+  // 永久能力：酒店侦探 - 拿取点数5的骰子时皇帝轨道前进2格
+  const emperorBonus = hasPermanentAbility(player, 'die_5_emperor_2') ? 2 : 0
+  const players = state.players.map((p, i) => i === state.currentPlayerIndex
+    ? { ...hired.player, emperorTrack: p.emperorTrack + emperorBonus } : p)
 
   const afterRemove = removeOneFromAreaDice(state, 5)
   const dice = removeOneDieFromArea(state.dice, 5)
 
   const result: GameState = {
     ...afterRemove, dice, players, availableStaff: hired.availableStaff,
-    logs: [...state.logs, `${player.name} 执行行动区5: 雇佣${hired.staff.name}，花费${hired.cost}(折扣${hired.discount})`],
+    logs: [...state.logs, `${player.name} 执行行动区5: 雇佣${hired.staff.name}，花费${hired.cost}(折扣${hired.discount})${emperorBonus > 0 ? ' 员工能力皇帝+2' : ''}`],
   }
 
   if (hired.staff.timing === 'one_time') {
@@ -968,13 +1019,18 @@ export function performAreaAction5(state: GameState, staffId: string): GameState
  * targetArea=3 时用 placements 准备客房（最多区6骰数间），=5 时用 subAction 指定的员工卡雇佣（折扣=区6骰数）
  */
 export function performAreaAction6(state: GameState, targetArea: number, subAction: string, placements?: RoomPlacement[]): GameState {
-  const n = state.areaDice[6] ?? 0
+  const player = state.players[state.currentPlayerIndex]
+
+  // 永久能力：厨房帮手 - 免费拿取点数6的骰子，且模拟的行动区骰数 +1
+  const kitchenHand = hasPermanentAbility(player, 'die_6_free_plus_reward')
+  const fee = kitchenHand ? 0 : 1
+  if (player.resources.money < fee) return state
+
+  const n = kitchenHand ? (state.areaDice[6] ?? 0) + 1 : (state.areaDice[6] ?? 0)
   if (n <= 0) return state
 
-  const player = state.players[state.currentPlayerIndex]
-  if (player.resources.money < 1) return state
-
-  const newRes = { ...player.resources, money: player.resources.money - 1 }
+  const newRes = { ...player.resources, money: player.resources.money - fee }
+  const feeLabel = kitchenHand ? '免费' : '花1元'
   const playerWithPayment = { ...player, resources: newRes }
 
   let players: Player[]
@@ -996,7 +1052,7 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
         ...afterRemove, dice,
         players: baseState.players,
         pendingAllocation: { wine, coffee },
-        logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市模拟行动区2，请分配资源`],
+        logs: [...state.logs, `${player.name} 执行行动区6(${feeLabel}): 黑市模拟行动区2，请分配资源`],
       }
     } else {
       const cake = Math.min(takeCount, n)
@@ -1007,7 +1063,7 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
         ...afterRemove, dice,
         players: baseState.players,
         pendingAllocation: { food, cake },
-        logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市模拟行动区1，请分配资源`],
+        logs: [...state.logs, `${player.name} 执行行动区6(${feeLabel}): 黑市模拟行动区1，请分配资源`],
       }
     }
   } else if (targetArea === 3) {
@@ -1017,7 +1073,7 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
       ...afterRemove, dice,
       players: baseState.players.map((p, i) => i === state.currentPlayerIndex ? placed.player : p),
       availableRooms: placed.availableRooms,
-      logs: [...state.logs, ...placed.logs, `${player.name} 执行行动区6(花1元): 黑市模拟行动区3，准备 ${placements?.length ?? 0} 间客房`],
+      logs: [...state.logs, ...placed.logs, `${player.name} 执行行动区6(${feeLabel}): 黑市模拟行动区3，准备 ${placements?.length ?? 0} 间客房`],
     }
   } else if (targetArea === 4) {
     const empAdv = parseInt(subAction) || 0
@@ -1034,7 +1090,7 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
       ...afterRemove, dice,
       players: baseState.players.map((p, i) => i === state.currentPlayerIndex ? hired.player : p),
       availableStaff: hired.availableStaff,
-      logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市雇佣${hired.staff.name}，花费${hired.cost}(折扣${hired.discount})`],
+      logs: [...state.logs, `${player.name} 执行行动区6(${feeLabel}): 黑市雇佣${hired.staff.name}，花费${hired.cost}(折扣${hired.discount})`],
     }
     return hired.staff.timing === 'one_time' ? applyOneTimeStaffAbility(result, hired.staff) : result
   } else {
@@ -1043,7 +1099,7 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
 
   return {
     ...afterRemove, dice, players,
-    logs: [...state.logs, `${player.name} 执行行动区6(花1元): 模拟行动区${targetArea}`],
+    logs: [...state.logs, `${player.name} 执行行动区6(${feeLabel}): 模拟行动区${targetArea}`],
   }
 }
 
@@ -1429,7 +1485,12 @@ function hasPermanentAbility(player: Player, ability: StaffAbility): boolean {
 
 export function canInviteGuest(player: Player, guest: GuestCard): boolean {
   if (player.guestWaitingArea.length >= MAX_CAFE_SEATS) return false
-  return player.resources.money >= guest.guestCost
+  return player.resources.money >= inviteCost(player, guest)
+}
+
+/** 永久能力：信差 - 可从版图免费邀请客人 */
+function inviteCost(player: Player, guest: GuestCard): number {
+  return hasPermanentAbility(player, 'free_guest') ? 0 : guest.guestCost
 }
 
 export function inviteGuest(state: GameState, playerId: string, guestId: string): GameState {
@@ -1444,7 +1505,7 @@ export function inviteGuest(state: GameState, playerId: string, guestId: string)
     if (p.id !== playerId) return p
     return {
       ...p,
-      resources: { ...p.resources, money: p.resources.money - guest.guestCost },
+      resources: { ...p.resources, money: p.resources.money - inviteCost(p, guest) },
       guestWaitingArea: [...p.guestWaitingArea, { ...guest, placedResources: {} }],
     }
   })
@@ -1452,7 +1513,7 @@ export function inviteGuest(state: GameState, playerId: string, guestId: string)
 
   return {
     ...state, players, availableGuests,
-    logs: [...state.logs, `${state.players.find(p => p.id === playerId)?.name} 花费${guest.guestCost}元邀请${guest.name}(${players.find(p => p.id === playerId)?.guestWaitingArea.length}/${MAX_CAFE_SEATS})`],
+    logs: [...state.logs, `${state.players.find(p => p.id === playerId)?.name} 花费${inviteCost(inviter, guest)}元邀请${guest.name}(${players.find(p => p.id === playerId)?.guestWaitingArea.length}/${MAX_CAFE_SEATS})`],
   }
 }
 
@@ -1743,17 +1804,198 @@ function applyEmperorEffect(player: Player, effect: { amount?: number; type: str
   }
 }
 
-function getAutoResolvedPenalty(player: Player, penalties: { amount?: number; type: string; description: string }[]): ({ amount?: number; type: string; description: string }) | null {
-  for (const penalty of penalties) {
-    if (penalty.type === 'money') {
-      const needed = Math.abs(penalty.amount ?? 0)
-      if (player.resources.money >= needed) return penalty
-    }
-    if (penalty.type === 'score') {
-      return penalty
-    }
+function hasKitchenItems(player: Player): boolean {
+  const k = player.kitchen
+  return k.food + k.cake + k.wine + k.coffee > 0
+}
+
+/** 已放置但还没有客人入住的客房（板块正面朝上） */
+function placedUnoccupiedSlots(player: Player) {
+  return player.roomSlots.filter(s => s.roomId !== null && !isSlotOccupied(player, s))
+}
+
+function occupiedSlots(player: Player) {
+  return player.roomSlots.filter(s => isSlotOccupied(player, s))
+}
+
+/** 惩罚是否真的能执行（无损失可扣时视为不可执行） */
+function isPenaltyApplicable(player: Player, penalty: EmperorEffect): boolean {
+  switch (penalty.type) {
+    case 'money':
+      return player.resources.money >= Math.abs(penalty.amount ?? 0)
+    case 'lose_staff':
+      return player.staffCards.length >= (penalty.amount ?? 1)
+    case 'lose_kitchen':
+      return hasKitchenItems(player)
+    case 'remove_guest':
+      return placedUnoccupiedSlots(player).length > 0
+    case 'remove_built_room':
+      return occupiedSlots(player).length >= (penalty.amount ?? 1)
+    default:
+      return true
   }
-  return null
+}
+
+/**
+ * 只有一个可执行的惩罚时自动结算（皇帝计分是全场同时进行的，让玩家逐个弹窗会卡住流程）；
+ * 有多个可执行惩罚时返回 null，交给 pendingPenalty 让玩家选择；
+ * 全都不可执行时返回第一个惩罚（等价于无损失），避免停留在待选择状态。
+ */
+function getAutoResolvedPenalty(player: Player, penalties: EmperorEffect[]): EmperorEffect | null {
+  const applicable = penalties.filter(p => isPenaltyApplicable(player, p))
+  if (applicable.length === 1) return applicable[0]
+  if (applicable.length > 1) return null
+  return penalties[0] ?? null
+}
+
+function drawStaffFromDeck(state: GameState, count: number): StaffCard[] {
+  const inUse = new Set<string>()
+  for (const p of state.players) {
+    for (const c of p.staffCards) inUse.add(c.id)
+    for (const c of p.draftHand) inUse.add(c.id)
+  }
+  for (const c of state.availableStaff) inUse.add(c.id)
+  return staffCards.filter(c => !inUse.has(c.id)).slice(0, count)
+}
+
+function queueBonusChoice(state: GameState, choice: BonusChoice): GameState {
+  return {
+    ...state,
+    pendingBonusChoices: [...(state.pendingBonusChoices ?? []), choice],
+    logs: [...state.logs, `${state.players.find(p => p.id === choice.playerId)?.name ?? ''} 需要选择: ${choice.description}`],
+  }
+}
+
+/** 从版图/玩家手中移除一间客房，房卡回到供应堆 */
+function removeRoomAt(state: GameState, playerId: string, slot: HotelBoardSlot, logPrefix: string): GameState {
+  const player = state.players.find(p => p.id === playerId)
+  if (!player || !slot.roomId) return state
+  const built = player.builtRooms.find(r => r.id === slot.roomId)
+  const players = state.players.map(p => p.id === playerId ? {
+    ...p,
+    roomSlots: p.roomSlots.map(s => s.row === slot.row && s.col === slot.col ? { ...s, roomId: null } : s),
+    builtRooms: p.builtRooms.filter(r => r.id !== slot.roomId),
+  } : p)
+  const availableRooms = built
+    ? [...state.availableRooms, { ...built, capacity: 1, isBuilt: false }]
+    : state.availableRooms
+  return {
+    ...state, players, availableRooms,
+    logs: [...state.logs, `${logPrefix} (${slot.row},${slot.col})`],
+  }
+}
+
+function applyEmperorPenalty(state: GameState, playerId: string, penalty: EmperorEffect): GameState {
+  const player = state.players.find(p => p.id === playerId)
+  if (!player) return state
+  const name = player.name
+
+  switch (penalty.type) {
+    case 'lose_kitchen':
+      return {
+        ...state,
+        players: state.players.map(p => p.id === playerId ? { ...p, kitchen: createResources() } : p),
+        logs: [...state.logs, `${name} 受到皇帝惩罚: ${penalty.description}`],
+      }
+    case 'lose_staff': {
+      const amount = penalty.amount ?? 1
+      // 自动弃牌时优先损失价值最低的卡（避免为了弹窗打断计分流程）
+      const losing = [...player.staffCards]
+        .sort((a, b) => a.victoryPoints - b.victoryPoints)
+        .slice(0, amount)
+        .map(c => c.id)
+      if (losing.length === 0) {
+        return { ...state, logs: [...state.logs, `${name} 受到皇帝惩罚: ${penalty.description}（手中无员工卡，无损失）`] }
+      }
+      return {
+        ...state,
+        players: state.players.map(p => p.id === playerId
+          ? { ...p, staffCards: p.staffCards.filter(c => !losing.includes(c.id)) } : p),
+        logs: [...state.logs, `${name} 受到皇帝惩罚: 放回牌库底 ${losing.length} 张员工卡`],
+      }
+    }
+    case 'remove_guest': {
+      const target = placedUnoccupiedSlots(player).sort((a, b) => b.row - a.row)[0]
+      if (!target) {
+        return { ...state, logs: [...state.logs, `${name} 受到皇帝惩罚: ${penalty.description}（没有未入住客房，无损失）`] }
+      }
+      return removeRoomAt(state, playerId, target, `${name} 受到皇帝惩罚: 移除未入住客房`)
+    }
+    case 'remove_built_room': {
+      const targets = occupiedSlots(player).sort((a, b) => b.row - a.row).slice(0, penalty.amount ?? 1)
+      if (targets.length === 0) {
+        return { ...state, logs: [...state.logs, `${name} 受到皇帝惩罚: ${penalty.description}（没有已入住客房，无损失）`] }
+      }
+      return targets.reduce(
+        (acc, slot) => removeRoomAt(acc, playerId, slot, `${name} 受到皇帝惩罚: 移除已入住客房`),
+        state,
+      )
+    }
+    default:
+      return {
+        ...state,
+        players: state.players.map(p => p.id === playerId ? applyEmperorEffect(p, penalty) : p),
+        logs: [...state.logs, `${name} 受到皇帝惩罚: ${penalty.description}`],
+      }
+  }
+}
+
+function applyEmperorReward(state: GameState, playerId: string, tile: EmperorTile): GameState {
+  const player = state.players.find(p => p.id === playerId)
+  if (!player) return state
+  const reward = tile.reward
+  const name = player.name
+  const rewardLog = [...state.logs, `${name} 获得皇帝奖励: ${reward.description}`]
+
+  let next: GameState
+  switch (reward.type) {
+    case 'staff_draw_play':
+    case 'staff_draw_free':
+    case 'free_staff': {
+      const options = reward.type === 'free_staff' ? state.availableStaff : drawStaffFromDeck(state, 3)
+      if (options.length === 0) {
+        return { ...state, logs: [...rewardLog, `${name} 没有可打的员工卡，奖励作废`] }
+      }
+      next = queueBonusChoice({ ...state, logs: rewardLog }, {
+        playerId, kind: 'staff', description: reward.description,
+        staffOptions: options.map(c => c.id),
+        discount: reward.type === 'staff_draw_play' ? 3 : 0,
+        freeStaff: reward.type !== 'staff_draw_play',
+      })
+      break
+    }
+    case 'free_room':
+    case 'free_room_built':
+      next = queueBonusChoice({ ...state, logs: rewardLog }, {
+        playerId, kind: 'room', description: reward.description,
+        freeRoom: true,
+        maxRow: reward.type === 'free_room_built' && tile.id === 'B4' ? 1 : undefined,
+        occupyImmediately: reward.type === 'free_room_built',
+      })
+      break
+    case 'advance_emperor':
+      next = {
+        ...state,
+        players: state.players.map(p => p.id === playerId
+          ? { ...p, emperorTrack: Math.min(13, p.emperorTrack + (reward.amount ?? 1)) } : p),
+        logs: rewardLog,
+      }
+      break
+    default:
+      next = {
+        ...state,
+        players: state.players.map(p => p.id === playerId ? applyEmperorEffect(p, reward) : p),
+        logs: rewardLog,
+      }
+  }
+
+  // 永久能力：园丁 - 每次获得皇帝奖励额外+5分
+  if (!hasPermanentAbility(player, 'emperor_bonus_5vp')) return next
+  return {
+    ...next,
+    players: next.players.map(p => p.id === playerId ? { ...p, score: p.score + 5 } : p),
+    logs: [...next.logs, `${name} 触发永久能力【园丁】: 皇帝奖励额外+5分`],
+  }
 }
 
 export function performEmperorScoring(state: GameState): GameState {
@@ -1761,54 +2003,51 @@ export function performEmperorScoring(state: GameState): GameState {
   if (scoringIndex >= 3) return state
 
   const regression = EMPEROR_REGRESSION[scoringIndex]
-  const newCount = scoringIndex + 1
+  const tile = state.emperorTiles[scoringIndex]
 
-  let logs: string[] = [...state.logs, `👑 第${newCount}次皇帝计分！ (回退${regression}格)`]
+  let working: GameState = {
+    ...state,
+    emperorScoringCount: scoringIndex + 1,
+    logs: [
+      ...state.logs,
+      `👑 第${scoringIndex + 1}次皇帝计分！ (回退${regression}格)`,
+      ...state.players.map(p => {
+        const scoreGain = calculateEmperorScore(p.emperorTrack)
+        return `${p.name}: 皇帝轨道${p.emperorTrack}格 → 获得${scoreGain}分 → 回退到${Math.max(0, p.emperorTrack - regression)}格`
+      }),
+    ],
+    players: state.players.map(p => ({
+      ...p,
+      score: p.score + calculateEmperorScore(p.emperorTrack),
+      // 奖励/惩罚取决于回退后的最终位置，而不是回退前
+      emperorTrack: Math.max(0, p.emperorTrack - regression),
+    })),
+  }
+
   const pendingPlayerIds: string[] = []
-  const players = state.players.map(p => {
-    const scoreGain = calculateEmperorScore(p.emperorTrack)
-    const newTrack = Math.max(0, p.emperorTrack - regression)
-    let updatedPlayer: Player = { ...p, score: p.score + scoreGain, emperorTrack: newTrack }
-
-    // 奖励/惩罚取决于回退后的最终位置，而不是回退前
-    const finalPos = newTrack
-    logs.push(`${p.name}: 皇帝轨道${p.emperorTrack}格 → 获得${scoreGain}分 → 回退到${newTrack}格`)
-
-    if (finalPos >= 3) {
-      const tile = state.emperorTiles[scoringIndex]
-      if (tile) {
-        updatedPlayer = applyEmperorEffect(updatedPlayer, tile.reward)
-        logs.push(`${p.name} 获得皇帝奖励: ${tile.reward.description}`)
+  for (const scored of working.players) {
+    if (!tile) break
+    if (scored.emperorTrack >= 3) {
+      working = applyEmperorReward(working, scored.id, tile)
+    } else if (scored.emperorTrack === 0) {
+      // 永久能力：活动策划经理 - 不受皇帝轨道0格惩罚
+      if (hasPermanentAbility(scored, 'no_emperor_penalty')) {
+        working = { ...working, logs: [...working.logs, `${scored.name} 触发永久能力【活动策划经理】: 免受0格惩罚`] }
+        continue
       }
-    } else if (finalPos === 0) {
-      const tile = state.emperorTiles[scoringIndex]
-      if (tile) {
-        const autoPenalty = getAutoResolvedPenalty(updatedPlayer, tile.penalties)
-        if (autoPenalty) {
-          updatedPlayer = applyEmperorEffect(updatedPlayer, autoPenalty)
-          logs.push(`${p.name} 受到皇帝惩罚: ${autoPenalty.description}`)
-        } else {
-          pendingPlayerIds.push(p.id)
-        }
-      }
-    }
-
-    return updatedPlayer
-  })
-
-  let pendingPenalty: GameState['pendingPenalty'] = null
-  if (pendingPlayerIds.length > 0) {
-    const tile = state.emperorTiles[scoringIndex]
-    if (tile) {
-      pendingPenalty = {
-        playerId: pendingPlayerIds[0],
-        penalties: tile.penalties,
-        remainingPlayerIds: pendingPlayerIds.slice(1),
-      }
+      const current = working.players.find(p => p.id === scored.id)!
+      const auto = getAutoResolvedPenalty(current, tile.penalties)
+      if (auto) working = applyEmperorPenalty(working, current.id, auto)
+      else pendingPlayerIds.push(current.id)
     }
   }
 
-  return { ...state, players, logs, emperorScoringCount: newCount, pendingPenalty }
+  const pendingPenalty: GameState['pendingPenalty'] =
+    pendingPlayerIds.length > 0 && tile
+      ? { playerId: pendingPlayerIds[0], penalties: tile.penalties, remainingPlayerIds: pendingPlayerIds.slice(1) }
+      : null
+
+  return { ...working, pendingPenalty }
 }
 
 export function resolvePenalty(state: GameState, penaltyIndex: number): GameState {
@@ -1818,24 +2057,14 @@ export function resolvePenalty(state: GameState, penaltyIndex: number): GameStat
   if (penaltyIndex < 0 || penaltyIndex >= penalties.length) return state
 
   const penalty = penalties[penaltyIndex]
-  const playerIndex = state.players.findIndex(p => p.id === playerId)
-  if (playerIndex === -1) return state
-
-  const players = state.players.map((p, i) => {
-    if (i === playerIndex) {
-      return applyEmperorEffect(p, penalty)
-    }
-    return p
-  })
-
-  let logs = [...state.logs]
-  const playerName = state.players[playerIndex].name
-  logs.push(`${playerName} 选择惩罚: ${penalty.description}`)
+  const playerName = state.players.find(p => p.id === playerId)?.name ?? ''
+  const resolved = applyEmperorPenalty(state, playerId, penalty)
+  const logs = [...resolved.logs]
+  if (resolved.logs.length === state.logs.length) logs.push(`${playerName} 选择惩罚: ${penalty.description}`)
 
   let newPendingPenalty: GameState['pendingPenalty'] = null
   if (remainingPlayerIds.length > 0) {
-    const scoringIndex = state.emperorScoringCount - 1
-    const tile = state.emperorTiles[scoringIndex]
+    const tile = state.emperorTiles[state.emperorScoringCount - 1]
     if (tile) {
       newPendingPenalty = {
         playerId: remainingPlayerIds[0],
@@ -1845,7 +2074,78 @@ export function resolvePenalty(state: GameState, penaltyIndex: number): GameStat
     }
   }
 
-  return { ...state, players, logs, pendingPenalty: newPendingPenalty }
+  return { ...resolved, logs, pendingPenalty: newPendingPenalty }
+}
+
+/**
+ * 结算队首的待选收益（皇帝奖励 / 员工永久能力）
+ */
+export function resolveBonusChoice(
+  state: GameState,
+  payload: { staffId?: string; placements?: RoomPlacement[] },
+): GameState {
+  const queue = state.pendingBonusChoices
+  if (!queue || queue.length === 0) return state
+  const choice = queue[0]
+  const player = state.players.find(p => p.id === choice.playerId)
+  if (!player) return { ...state, pendingBonusChoices: queue.length > 1 ? queue.slice(1) : null }
+
+  const pop = (next: GameState): GameState => ({
+    ...next,
+    pendingBonusChoices: next.pendingBonusChoices && next.pendingBonusChoices.length > 1
+      ? next.pendingBonusChoices.slice(1)
+      : null,
+  })
+
+  if (choice.kind === 'staff') {
+    const staff = staffCards.find(c => c.id === payload.staffId)
+    if (!staff || !choice.staffOptions?.includes(staff.id)) return state
+    const cost = choice.freeStaff ? 0 : Math.max(0, staff.cost - (choice.discount ?? 0))
+    if (player.resources.money < cost) return state
+
+    const players = state.players.map(p => p.id === choice.playerId ? {
+      ...p,
+      resources: { ...p.resources, money: p.resources.money - cost },
+      staffCards: [...p.staffCards, staff],
+      score: p.score + staff.victoryPoints,
+    } : p)
+    const withoutOption = {
+      ...state, players,
+      availableStaff: state.availableStaff.filter(c => c.id !== staff.id),
+      logs: [...state.logs, `${player.name} ${choice.description}: 打出员工卡 ${staff.name}，花费${cost}元`],
+    }
+    const popped = pop(withoutOption)
+    return staff.timing === 'one_time' ? applyOneTimeStaffAbility(popped, staff) : popped
+  }
+
+  const placed = tryPlaceRooms(player, state.availableRooms, payload.placements ?? [], 1,
+    { freeCost: choice.freeRoom, maxRow: choice.maxRow })
+  if (!placed) return state
+
+  let builtRooms = placed.player.builtRooms
+  if (choice.occupyImmediately && builtRooms.length > 0) {
+    builtRooms = builtRooms.map((r, i) => i === builtRooms.length - 1 ? { ...r, capacity: 0 } : r)
+  }
+  const players = state.players.map(p => p.id === choice.playerId ? { ...placed.player, builtRooms } : p)
+
+  return pop({
+    ...state, players,
+    availableRooms: placed.availableRooms,
+    logs: [...state.logs, ...placed.logs,
+      `${player.name} ${choice.description}${choice.occupyImmediately ? '，客房立即入住' : ''}`],
+  })
+}
+
+export function declineBonusChoice(state: GameState): GameState {
+  const queue = state.pendingBonusChoices
+  if (!queue || queue.length === 0) return state
+  const choice = queue[0]
+  const name = state.players.find(p => p.id === choice.playerId)?.name ?? ''
+  return {
+    ...state,
+    pendingBonusChoices: queue.length > 1 ? queue.slice(1) : null,
+    logs: [...state.logs, `${name} 放弃收益: ${choice.description}`],
+  }
 }
 
 // --- End-of-Game Staff Ability ---

@@ -138,6 +138,28 @@ export interface EmperorTile {
   penalties: EmperorEffect[]
 }
 
+/**
+ * 需要玩家做选择才能结算的收益（皇帝板块奖励、装潢师/人事主管等永久能力）。
+ * 由引擎入队，UI 逐个弹出，resolveBonusChoice 出队。
+ */
+export interface BonusChoice {
+  playerId: string
+  kind: 'staff' | 'room'
+  description: string
+  /** kind='staff'：可打的员工卡 ID（已从牌库抽出） */
+  staffOptions?: string[]
+  /** kind='staff'：费用折扣，freeStaff 为真时忽略 */
+  discount?: number
+  /** kind='staff'：完全免费 */
+  freeStaff?: boolean
+  /** kind='room'：免楼层费用 */
+  freeRoom?: boolean
+  /** kind='room'：允许放置的最大行号 */
+  maxRow?: number
+  /** kind='room'：放置后立即翻为已入住 */
+  occupyImmediately?: boolean
+}
+
 // --- Politics Card Types ---
 
 export type PoliticsCondition =
@@ -269,6 +291,8 @@ export interface GameState {
   pendingAllocation: Partial<Resources> | null
   /** 额外行动-员工能力：待选择的员工卡 ID 列表（前端UI显示让用户选1张） */
   pendingStaffSelection: string[] | null
+  /** 待玩家做选择的收益队列（皇帝奖励 / 员工永久能力），队首优先结算 */
+  pendingBonusChoices: BonusChoice[] | null
 }
 
 /** 客房是否已入住（客人入住后板块翻面，床位用完即 capacity === 0） */

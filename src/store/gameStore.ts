@@ -11,7 +11,6 @@ import {
   buildRoom,
   hireStaff,
   getNextActionPlayer,
-  startNextRound,
   canBuildRoom,
   canHireStaff,
   canServeGuest,
@@ -19,8 +18,10 @@ import {
   performTurnAction,
   skipTurn,
   getActionAreaCounts,
-  performFinalScoring,
   resolvePenalty,
+  resolveBonusChoice,
+  declineBonusChoice,
+  continueAfterPending,
   pickSetupGuest,
   placeSetupRoom,
   skipSetupRoom,
@@ -55,6 +56,8 @@ interface GameStore extends GameState {
   constructRoom: (roomId: string) => void
   hireStaffMember: (staffId: string) => void
   resolvePenalty: (penaltyIndex: number) => void
+  resolveBonusChoice: (payload: { staffId?: string; placements?: RoomPlacement[] }) => void
+  declineBonusChoice: () => void
   getCurrentPlayer: () => Player
   // New actions
   placePoliticsMarkerAction: (cardId: string) => void
@@ -243,19 +246,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   resolvePenalty: (penaltyIndex: number) => {
-    const state = get()
-    const next = resolvePenalty(state, penaltyIndex)
-    if (!next.pendingPenalty) {
-      // All penalties resolved, continue flow
-      if (next.roundNumber >= 7) {
-        const finalState = performFinalScoring(next)
-        set(finalState as unknown as Partial<GameStore>)
-      } else {
-        set(startNextRound(next) as unknown as Partial<GameStore>)
-      }
-    } else {
-      set(next as unknown as Partial<GameStore>)
-    }
+    const next = resolvePenalty(get(), penaltyIndex)
+    set(continueAfterPending(next) as unknown as Partial<GameStore>)
+  },
+
+  resolveBonusChoice: (payload) => {
+    const next = resolveBonusChoice(get(), payload)
+    set(continueAfterPending(next) as unknown as Partial<GameStore>)
+  },
+
+  declineBonusChoice: () => {
+    const next = declineBonusChoice(get())
+    set(continueAfterPending(next) as unknown as Partial<GameStore>)
   },
 
   getCurrentPlayer: () => get().players[get().currentPlayerIndex],

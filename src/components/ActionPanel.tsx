@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { turnOrderTiles } from '../data/turnOrder'
+import { staffCards } from '../data/staff'
 import type { ExtraAction } from '../types/game'
-import type { RoomPlacement } from '../game-logic/engine'
+import { roomPlacementCost, type RoomPlacement } from '../game-logic/engine'
 
 const AREA_CONFIG: Record<number, { name: string; desc: string; color: string; icon: string }> = {
   1: { name: '食材市场', desc: '取食物或蛋糕', color: '#e74c3c', icon: '🥖' },
@@ -1389,22 +1390,37 @@ function StaffTab({ availableStaff, player, hireStaffMember }: {
 // Room Picker Inline
 // ════════════════════════════════════════
 
-function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
+export function RoomPickerInline({ maxRooms, fee = 0, freeCost = false, maxRow, playerId, onConfirm, onBack }: {
   maxRooms: number
   /** 执行本次行动前就要扣掉的固定费用（黑市的1元），用于剩余资金判断 */
   fee?: number
+  /** 楼层费用全免（皇帝奖励 free_room） */
+  freeCost?: boolean
+  /** 允许放置的最大行号（皇帝板块 B4 限前2排） */
+  maxRow?: number
+  /** 非当前行动玩家（如皇帝计分时的奖励接受者） */
+  playerId?: string
   onConfirm: (placements: RoomPlacement[]) => void
-  onBack: () => void
+  onBack?: () => void
 }) {
   const rooms = useGameStore(s => s.availableRooms)
-  const player = useGameStore(s => s.players[s.currentPlayerIndex])
+  const allPlayers = useGameStore(s => s.players)
+  const currentIdx = useGameStore(s => s.currentPlayerIndex)
+  const player = (playerId ? allPlayers.find(p => p.id === playerId) : undefined) ?? allPlayers[currentIdx]
   const [pickedId, setPickedId] = useState<string | null>(null)
   const [placements, setPlacements] = useState<RoomPlacement[]>([])
 
   const slotAt = (row: number, col: number) =>
     player.roomSlots.find((s: any) => s.row === row && s.col === col)
 
-  const spent = placements.reduce((sum, p) => sum + (slotAt(p.row, p.col)?.cost ?? 0), 0)
+  const costFor = (roomId: string, slot: any) => {
+    if (!slot) return 0
+    if (freeCost) return 0
+    const room = rooms.find((r: any) => r.id === roomId)
+    return room ? roomPlacementCost(player, room, slot) : slot.cost
+  }
+
+  const spent = placements.reduce((sum, p) => sum + costFor(p.roomId, slotAt(p.row, p.col)), 0)
   const remaining = (player.resources.money ?? 0) - fee - spent
 
   // 把本次已选客房铺到版图上预览，供占位与相邻判断使用
@@ -1429,23 +1445,26 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
           </button>
         </div>
         <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10 }}>
-          {(emptyHotel ? '首间须放在左下角(0,0)' : '选择空位放置（同色、需相邻）') + '，剩余资金 ' + remaining + ' 元'}
+          {(emptyHotel ? '首间须放在左下角(0,0)' : '选择空位放置（同色、需相邻）') +
+            (maxRow !== undefined ? `，仅限第0-${maxRow}排` : '') +
+            '，剩余资金 ' + remaining + ' 元'}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, marginBottom: 8 }}>
           {player.roomSlots.map((slot: any, i: number) => {
             const takenInThisAction = placements.some(p => p.row === slot.row && p.col === slot.col)
+            const inRowLimit = maxRow === undefined || slot.row <= maxRow
             const adjacent = emptyHotel
               ? slot.row === 0 && slot.col === 0
               : previewSlots.some((s: any) =>
                   s.roomId && Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1)
-            const canPlace = !slot.roomId && !takenInThisAction &&
-              slot.color === pickedRoom.color && adjacent && slot.cost <= remaining
+            const canPlace = !slot.roomId && !takenInThisAction && inRowLimit &&
+              slot.color === pickedRoom.color && adjacent && costFor(pickedId, slot) <= remaining
             return (
-              <div key={i} onClick={canPlace ? () => {
+              <button key={i} onClick={canPlace ? () => {
                 setPlacements(prev => [...prev, { roomId: pickedId, row: slot.row, col: slot.col }])
                 setPickedId(null)
               } : undefined} style={{
-                width: '100%', aspectRatio: '1', borderRadius: 6,
+                font: 'inherit', width: '100%', aspectRatio: '1', borderRadius: 6,
                 background: slot.roomId ? (slot.color === 'blue' ? '#1a2744' : slot.color === 'yellow' ? '#3a3520' : '#3a1a1a') :
                   canPlace ? '#2a3a2a' : '#1a1a2e',
                 border: '1px solid ' + (canPlace ? '#2ecc71' : slot.roomId ? '#4a7db5' : '#2a2a4a'),
@@ -1455,15 +1474,17 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
                 fontWeight: canPlace ? 600 : 400,
               }}>
                 <span>{slot.roomId ? '🏠' : canPlace ? '+' : ''}</span>
-                {!slot.roomId && <span style={{ fontSize: 8 }}>{slot.cost}元</span>}
-              </div>
+                {!slot.roomId && <span style={{ fontSize: 8 }}>{costFor(pickedId, slot) === 0 ? '免费' : costFor(pickedId, slot) + '元'}</span>}
+              </button>
             )
           })}
         </div>
-        <button onClick={onBack}
-          style={{ marginTop: 4, background: 'none', border: '1px solid #4a4a6a', borderRadius: 6, padding: '6px 16px', color: '#888', cursor: 'pointer', fontSize: 12 }}>
-          {'<- 返回'}
-        </button>
+        {onBack && (
+          <button onClick={onBack}
+            style={{ marginTop: 4, background: 'none', border: '1px solid #4a4a6a', borderRadius: 6, padding: '6px 16px', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+            {'<- 返回'}
+          </button>
+        )}
       </div>
     )
   }
@@ -1474,9 +1495,11 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
         <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
           {'🏗️ 选择房间 (' + placements.length + '/' + maxRooms + ')'}
         </span>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
-          {'<- 返回'}
-        </button>
+        {onBack && (
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+            {'<- 返回'}
+          </button>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -1488,7 +1511,8 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
         {rooms.slice(0, 8).map((r: any) => {
           const selectable = placements.length < maxRooms
           return (
-            <div key={r.id} onClick={selectable ? () => setPickedId(r.id) : undefined} style={{
+            <button key={r.id} onClick={selectable ? () => setPickedId(r.id) : undefined} style={{
+              font: 'inherit', textAlign: 'left',
               background: '#2a2a4a',
               border: '1px solid ' + (selectable ? (GUEST_COLORS[r.color]?.border ?? '#4a7db5') : '#3a3a3a'),
               borderRadius: 8, padding: '6px 10px',
@@ -1498,7 +1522,7 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
               <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: 11 }}>{r.name}</div>
               <div style={{ color: '#f1c40f', fontSize: 10 }}>+{r.victoryPoints}分</div>
               <div style={{ fontSize: 9, color: '#888' }}>{GUEST_COLORS[r.color]?.label ?? r.color}</div>
-            </div>
+            </button>
           )
         })}
       </div>
@@ -1512,7 +1536,7 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: '#bbb', marginBottom: 4 }}>
                 <span>{(room?.name ?? p.roomId) + ' @ (' + p.row + ',' + p.col + ')'}</span>
                 <span>
-                  <span style={{ color: '#f39c12' }}>{'💰' + (slot?.cost ?? 0) + '元  '}</span>
+                  <span style={{ color: '#f39c12' }}>{(costFor(p.roomId, slot) === 0 ? '免费  ' : '💰' + (costFor(p.roomId, slot)) + '元  ')}</span>
                   <button onClick={() => setPlacements(prev => prev.filter((_, j) => j !== i))}
                     style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: 12 }}>
                     ✕
@@ -1539,27 +1563,40 @@ function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
 // Staff Picker Inline
 // ════════════════════════════════════════
 
-function StaffPickerInline({ n, fee = 0, onSelect, onBack }: {
+export function StaffPickerInline({ n, fee = 0, free = false, staffOptions, playerId, title, onSelect, onBack }: {
   n: number
   /** 执行本次行动前就要扣掉的固定费用（黑市的1元） */
   fee?: number
+  /** 完全免费（人事主管 / 皇帝免费打出员工卡） */
+  free?: boolean
+  /** 限定可选的员工卡 ID（从牌库抽出的3张），不传则用人力市场 */
+  staffOptions?: string[]
+  playerId?: string
+  title?: string
   onSelect: (staffId: string) => void
-  onBack: () => void
+  onBack?: () => void
 }) {
-  const staff = useGameStore(s => s.availableStaff)
-  const player = useGameStore(s => s.players[s.currentPlayerIndex])
+  const market = useGameStore(s => s.availableStaff)
+  const allPlayers = useGameStore(s => s.players)
+  const currentIdx = useGameStore(s => s.currentPlayerIndex)
+  const player = (playerId ? allPlayers.find(p => p.id === playerId) : undefined) ?? allPlayers[currentIdx]
   const discount = n
   const payable = player.resources.money - fee
+  const staff = staffOptions
+    ? staffOptions.map(id => staffCards.find(c => c.id === id)).filter((c): c is NonNullable<typeof c> => !!c)
+    : market
 
   return (
     <div style={{ background: '#0f0f1a', borderRadius: 10, padding: 16, border: '1px solid #3a3a5a', marginTop: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 14, color: '#e0e0e0', fontWeight: 600 }}>
-          {'👔 选择员工 (折扣' + discount + '元)'}
+          {title ?? ('👔 选择员工 (折扣' + discount + '元)')}
         </span>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
-          {'<- 返回'}
-        </button>
+        {onBack && (
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>
+            {'<- 返回'}
+          </button>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {staff.length === 0 && (
@@ -1568,10 +1605,11 @@ function StaffPickerInline({ n, fee = 0, onSelect, onBack }: {
           </div>
         )}
         {staff.slice(0, 8).map((s: any) => {
-          const finalCost = Math.max(0, s.cost - discount)
+          const finalCost = free ? 0 : Math.max(0, s.cost - discount)
           const affordable = payable >= finalCost
           return (
-            <div key={s.id} onClick={affordable ? () => onSelect(s.id) : undefined} style={{
+            <button key={s.id} onClick={affordable ? () => onSelect(s.id) : undefined} style={{
+              textAlign: 'left', font: 'inherit',
               background: '#2a2a4a', border: '1px solid ' + (affordable ? '#4a7db5' : '#3a3a3a'),
               borderRadius: 8, padding: '6px 10px',
               cursor: affordable ? 'pointer' : 'not-allowed',
@@ -1583,9 +1621,9 @@ function StaffPickerInline({ n, fee = 0, onSelect, onBack }: {
               </div>
               <div style={{ fontSize: 10, color: '#888' }}>{s.description}</div>
               <div style={{ fontSize: 10, color: affordable ? '#f39c12' : '#e74c3c' }}>
-                {'💰' + finalCost} {discount > 0 && <span style={{ color: '#666', textDecoration: 'line-through', marginLeft: 2 }}>({s.cost})</span>}
+                {finalCost === 0 ? '免费' : '💰' + finalCost} {discount > 0 && !free && <span style={{ color: '#666', textDecoration: 'line-through', marginLeft: 2 }}>({s.cost})</span>}
               </div>
-            </div>
+            </button>
           )
         })}
       </div>
