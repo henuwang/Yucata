@@ -1,5 +1,11 @@
 import type { Die, GameState, Player, GuestCard, RoomTile, Resources, StaffCard, StaffAbility, TurnOrderTile, RoomColor, PoliticsCondition, GroupBonus } from '../types/game'
-import { createResources, createPlayerExtraActionState, isGroupFullyOccupied } from '../types/game'
+import {
+  createResources,
+  createPlayerExtraActionState,
+  isGroupFullyOccupied,
+  isSlotOccupied,
+  countOccupiedSlots,
+} from '../types/game'
 import { guestCards } from '../data/guests'
 import { roomTiles } from '../data/rooms'
 import { staffCards } from '../data/staff'
@@ -254,6 +260,17 @@ export function getSetupOrder(players: Player[], turnOrderTiles: TurnOrderTile[]
   return order
 }
 
+/** 客人版图取走后从牌库补一位新客人（跳过版图上与所有玩家区域里已有的） */
+function refillGuestBoard(players: Player[], boardGuests: GuestCard[]): GuestCard[] {
+  const inUse = new Set(boardGuests.map(g => g.id))
+  for (const p of players) {
+    for (const g of p.guestWaitingArea) inUse.add(g.id)
+    for (const g of p.guestServedArea) inUse.add(g.id)
+  }
+  const next = guestCards.find(g => !inUse.has(g.id))
+  return next ? [...boardGuests, next] : boardGuests
+}
+
 export function pickSetupGuest(state: GameState, guestId: string): GameState {
   const pIdx = state.setupPlayerIndex
   const player = state.players[pIdx]
@@ -269,10 +286,7 @@ export function pickSetupGuest(state: GameState, guestId: string): GameState {
   )
 
   const remainingGuests = state.availableGuests.filter((_, i) => i !== guestIdx)
-  const newGuestFromDeck = guestCards.find(g => !remainingGuests.some(rg => rg.id === g.id) && !state.players.some(p => p.guestWaitingArea.some(gw => gw.id === g.id) || p.guestServedArea.some(gs => gs.id === g.id)))
-  const finalGuests = newGuestFromDeck
-    ? [...remainingGuests, newGuestFromDeck]
-    : remainingGuests
+  const finalGuests = refillGuestBoard(players, remainingGuests)
 
   const setupOrder = getSetupOrder(state.players, state.turnOrderTiles)
   const currentSetupIdx = setupOrder.indexOf(pIdx)
@@ -1370,15 +1384,18 @@ export function inviteGuest(state: GameState, playerId: string, guestId: string)
   if (guestIdx === -1) return state
   const guest = state.availableGuests[guestIdx]
 
+  const inviter = state.players.find(p => p.id === playerId)
+  if (!inviter || !canInviteGuest(inviter, guest)) return state
+
   const players = state.players.map(p => {
-    if (p.id !== playerId || !canInviteGuest(p, guest)) return p
+    if (p.id !== playerId) return p
     return {
       ...p,
       resources: { ...p.resources, money: p.resources.money - guest.guestCost },
       guestWaitingArea: [...p.guestWaitingArea, { ...guest, placedResources: {} }],
     }
   })
-  const availableGuests = state.availableGuests.filter((_, i) => i !== guestIdx)
+  const availableGuests = refillGuestBoard(players, state.availableGuests.filter((_, i) => i !== guestIdx))
 
   return {
     ...state, players, availableGuests,
@@ -1700,7 +1717,8 @@ export function performEmperorScoring(state: GameState): GameState {
     const newTrack = Math.max(0, p.emperorTrack - regression)
     let updatedPlayer: Player = { ...p, score: p.score + scoreGain, emperorTrack: newTrack }
 
-    const finalPos = p.emperorTrack
+    // 奖励/惩罚取决于回退后的最终位置，而不是回退前
+    const finalPos = newTrack
     logs.push(`${p.name}: 皇帝轨道${p.emperorTrack}格 → 获得${scoreGain}分 → 回退到${newTrack}格`)
 
     if (finalPos >= 3) {
@@ -1780,7 +1798,7 @@ export function resolvePenalty(state: GameState, penaltyIndex: number): GameStat
 // --- End-of-Game Staff Ability ---
 
 function countOccupiedRoomsByColor(player: Player, color: string): number {
-  return player.roomSlots.filter(s => s.color === color && s.roomId).length
+  return countOccupiedSlots(player, s => s.color === color)
 }
 
 function countFilledRows(player: Player): number {
@@ -1788,7 +1806,7 @@ function countFilledRows(player: Player): number {
   for (const slot of player.roomSlots) {
     const entry = rows.get(slot.row) ?? { total: 0, filled: 0 }
     entry.total++
-    if (slot.roomId) entry.filled++
+    if (isSlotOccupied(player, slot)) entry.filled++
     rows.set(slot.row, entry)
   }
   let count = 0
@@ -1803,7 +1821,7 @@ function countFilledColumns(player: Player): number {
   for (const slot of player.roomSlots) {
     const entry = cols.get(slot.col) ?? { total: 0, filled: 0 }
     entry.total++
-    if (slot.roomId) entry.filled++
+    if (isSlotOccupied(player, slot)) entry.filled++
     cols.set(slot.col, entry)
   }
   let count = 0
@@ -1818,7 +1836,7 @@ function countFilledGroups(player: Player): number {
   for (const slot of player.roomSlots) {
     const entry = groups.get(slot.groupId) ?? { total: 0, filled: 0 }
     entry.total++
-    if (slot.roomId) entry.filled++
+    if (isSlotOccupied(player, slot)) entry.filled++
     groups.set(slot.groupId, entry)
   }
   let count = 0
@@ -1829,11 +1847,7 @@ function countFilledGroups(player: Player): number {
 }
 
 function countOccupiedRooms(player: Player): number {
-  return player.roomSlots.filter(s => {
-    if (!s.roomId) return false
-    const builtRoom = player.builtRooms.find(r => r.id === s.roomId)
-    return builtRoom && builtRoom.capacity === 0
-  }).length
+  return countOccupiedSlots(player)
 }
 
 function applyEndGameStaffAbility(player: Player, staff: StaffCard, _allPlayers: Player[]): number {
@@ -1859,7 +1873,7 @@ function applyEndGameStaffAbility(player: Player, staff: StaffCard, _allPlayers:
     case 'end_vp_per_red_room':
       return countOccupiedRoomsByColor(player, 'red') * 3
     case 'end_vp_per_room':
-      return player.roomSlots.filter(s => s.roomId).length * 1
+      return countOccupiedSlots(player) * 1
     case 'end_copy_staff': {
       // 复制另一位玩家的某张员工卡的终局计分效果
       // 遍历所有其他玩家，找到 end_of_game 类型员工卡中 VP 最高的一张
@@ -1895,14 +1909,11 @@ export function performFinalScoring(state: GameState): GameState {
   const players = state.players.map(p => {
     let finalScore = p.score
 
-    // 任务7：已入住的房间按所在排给分
+    // 规则7：只有「已入住」的客房按所在排给分
     // 第1排（row=0，最下面）= 1分，第2排（row=1）= 2分，第3排（row=2）= 3分，第4排（row=3）= 4分
     const roomScore = p.roomSlots
-      .filter(s => s.roomId !== null) // 有房间的 slot
-      .reduce((sum, s) => {
-        const rowScore = s.row + 1 // row 0→1分, row 1→2分, row 2→3分, row 3→4分
-        return sum + rowScore
-      }, 0)
+      .filter(s => isSlotOccupied(p, s))
+      .reduce((sum, s) => sum + (s.row + 1), 0)
     finalScore += roomScore
 
     // 剩余现金：每元=1分
@@ -2016,86 +2027,41 @@ export function checkPoliticsCondition(player: Player, condition: PoliticsCondit
       return player.staffCards.length >= 6
 
     case 'room_12':
-      return player.roomSlots.filter(s => s.roomId).length >= 12
+      return countOccupiedSlots(player) >= 12
 
-    case 'row_2_full': {
-      const rows = new Map<number, { total: number; filled: number }>()
-      for (const slot of player.roomSlots) {
-        const entry = rows.get(slot.row) ?? { total: 0, filled: 0 }
-        entry.total++
-        if (slot.roomId) entry.filled++
-        rows.set(slot.row, entry)
-      }
-      let fullRows = 0
-      for (const entry of rows.values()) {
-        if (entry.total === entry.filled) fullRows++
-      }
-      return fullRows >= 2
-    }
+    case 'row_2_full':
+      return countFilledRows(player) >= 2
 
-    case 'col_2_full': {
-      const cols = new Map<number, { total: number; filled: number }>()
-      for (const slot of player.roomSlots) {
-        const entry = cols.get(slot.col) ?? { total: 0, filled: 0 }
-        entry.total++
-        if (slot.roomId) entry.filled++
-        cols.set(slot.col, entry)
-      }
-      let fullCols = 0
-      for (const entry of cols.values()) {
-        if (entry.total === entry.filled) fullCols++
-      }
-      return fullCols >= 2
-    }
+    case 'col_2_full':
+      return countFilledColumns(player) >= 2
 
-    case 'group_6_full': {
-      const groups = new Map<number, { total: number; filled: number }>()
-      for (const slot of player.roomSlots) {
-        const entry = groups.get(slot.groupId) ?? { total: 0, filled: 0 }
-        entry.total++
-        if (slot.roomId) entry.filled++
-        groups.set(slot.groupId, entry)
-      }
-      let fullGroups = 0
-      for (const entry of groups.values()) {
-        if (entry.total === entry.filled) fullGroups++
-      }
-      return fullGroups >= 6
-    }
+    case 'group_6_full':
+      return countFilledGroups(player) >= 6
 
     case 'color_all_full': {
       const colors: RoomColor[] = ['red', 'yellow', 'blue']
-      for (const color of colors) {
+      return colors.some(color => {
         const slots = player.roomSlots.filter(s => s.color === color)
-        if (slots.length > 0 && slots.every(s => s.roomId)) return true
-      }
-      return false
+        return slots.length > 0 && slots.every(s => isSlotOccupied(player, s))
+      })
     }
 
     case 'color_3_each': {
       const colors: RoomColor[] = ['red', 'yellow', 'blue']
-      return colors.every(color =>
-        player.roomSlots.filter(s => s.color === color && s.roomId).length >= 3
-      )
+      return colors.every(color => countOccupiedSlots(player, s => s.color === color) >= 3)
     }
 
-    case 'red_4_yellow_3': {
-      const redCount = player.roomSlots.filter(s => s.color === 'red' && s.roomId).length
-      const yellowCount = player.roomSlots.filter(s => s.color === 'yellow' && s.roomId).length
-      return redCount >= 4 && yellowCount >= 3
-    }
+    case 'red_4_yellow_3':
+      return countOccupiedSlots(player, s => s.color === 'red') >= 4 &&
+        countOccupiedSlots(player, s => s.color === 'yellow') >= 3
 
-    case 'yellow_4_blue_3': {
-      const yellowCount = player.roomSlots.filter(s => s.color === 'yellow' && s.roomId).length
-      const blueCount = player.roomSlots.filter(s => s.color === 'blue' && s.roomId).length
-      return yellowCount >= 4 && blueCount >= 3
-    }
+    case 'yellow_4_blue_3':
+      return countOccupiedSlots(player, s => s.color === 'yellow') >= 4 &&
+        countOccupiedSlots(player, s => s.color === 'blue') >= 3
 
-    case 'blue_4_red_3': {
-      const blueCount = player.roomSlots.filter(s => s.color === 'blue' && s.roomId).length
-      const redCount = player.roomSlots.filter(s => s.color === 'red' && s.roomId).length
-      return blueCount >= 4 && redCount >= 3
-    }
+    case 'blue_4_red_3':
+      return countOccupiedSlots(player, s => s.color === 'blue') >= 4 &&
+        countOccupiedSlots(player, s => s.color === 'red') >= 3
 
     default:
       return false
@@ -2240,10 +2206,10 @@ export function moveKitchenToGuest(
   // 检查移动数量上限
   if (count > 3) return state
 
-  // 检查费用：除非有免费送餐能力(s28 - 首席服务员)，否则需支付1克朗
+  // 检查费用：除非有免费送餐能力(s28 - 首席服务员)，否则从玩家资金支付1克朗
   const hasFreeServe = hasPermanentAbility(player, 'free_serve_guest')
   if (!hasFreeServe) {
-    if (player.kitchen.money < 1) return state
+    if (player.resources.money < 1) return state
   }
 
   // 检查厨房是否有足够的资源
@@ -2259,14 +2225,14 @@ export function moveKitchenToGuest(
     return state
   }
 
-  // 从厨房扣除（包含1克朗费用）
-  const kitchenCost = hasFreeServe ? 0 : 1
+  // 厨房只减餐饮，1克朗费用来自玩家资金
+  const serveCost = hasFreeServe ? 0 : 1
   const newKitchen = {
     food: player.kitchen.food - food,
     wine: player.kitchen.wine - wine,
     coffee: player.kitchen.coffee - coffee,
     cake: player.kitchen.cake - cake,
-    money: player.kitchen.money - kitchenCost,
+    money: player.kitchen.money,
   }
 
   // 将食物放到客人卡片的 placedResources 上（而非 player.resources）
@@ -2284,6 +2250,7 @@ export function moveKitchenToGuest(
 
   const updatedPlayer = {
     ...player,
+    resources: { ...player.resources, money: player.resources.money - serveCost },
     kitchen: newKitchen,
     guestWaitingArea: player.guestWaitingArea.map(g =>
       g.id === guestId ? updatedGuest : g

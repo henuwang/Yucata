@@ -271,12 +271,19 @@ export interface GameState {
   pendingStaffSelection: string[] | null
 }
 
+/** 客房是否已入住（客人入住后板块翻面，床位用完即 capacity === 0） */
+export function isSlotOccupied(player: Player, slot: HotelBoardSlot): boolean {
+  if (!slot.roomId) return false
+  const builtRoom = player.builtRooms.find(r => r.id === slot.roomId)
+  return !!builtRoom && builtRoom.capacity === 0
+}
+
+export function countOccupiedSlots(player: Player, predicate?: (slot: HotelBoardSlot) => boolean): number {
+  return player.roomSlots.filter(s => (predicate ? predicate(s) : true) && isSlotOccupied(player, s)).length
+}
+
 export function isGroupFullyOccupied(player: Player, groupId: number): boolean {
   const groupSlots = player.roomSlots.filter(s => s.groupId === groupId)
   if (groupSlots.length === 0) return false
-  return groupSlots.every(s => {
-    if (!s.roomId) return false
-    const builtRoom = player.builtRooms.find(r => r.id === s.roomId)
-    return !!builtRoom && builtRoom.capacity === 0
-  })
+  return groupSlots.every(s => isSlotOccupied(player, s))
 }
