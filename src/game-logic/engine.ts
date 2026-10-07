@@ -1826,6 +1826,9 @@ function isPenaltyApplicable(player: Player, penalty: EmperorEffect): boolean {
     case 'lose_staff':
       return player.staffCards.length >= (penalty.amount ?? 1)
     case 'lose_kitchen':
+      // B1 还要清空房客需求区的餐饮，两侧都空才算无法执行
+      if (penalty.clearGuestItems && player.resources.food + player.resources.cake +
+          player.resources.wine + player.resources.coffee > 0) return true
       return hasKitchenItems(player)
     case 'remove_guest':
       return placedUnoccupiedSlots(player).length > 0
@@ -1891,12 +1894,18 @@ function applyEmperorPenalty(state: GameState, playerId: string, penalty: Empero
   const name = player.name
 
   switch (penalty.type) {
-    case 'lose_kitchen':
+    case 'lose_kitchen': {
+      const clearItems = (r: Player['resources']) => ({ ...r, food: 0, wine: 0, coffee: 0, cake: 0 })
       return {
         ...state,
-        players: state.players.map(p => p.id === playerId ? { ...p, kitchen: createResources() } : p),
+        players: state.players.map(p => p.id === playerId ? {
+          ...p,
+          kitchen: clearItems(p.kitchen),
+          resources: penalty.clearGuestItems ? clearItems(p.resources) : p.resources,
+        } : p),
         logs: [...state.logs, `${name} 受到皇帝惩罚: ${penalty.description}`],
       }
+    }
     case 'lose_staff': {
       const amount = penalty.amount ?? 1
       // 自动弃牌时优先损失价值最低的卡（避免为了弹窗打断计分流程）

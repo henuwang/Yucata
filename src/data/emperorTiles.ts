@@ -41,7 +41,7 @@ export const emperorTiles: EmperorTile[] = [
     group: 'B',
     reward: { type: 'mixed_food', description: '你获得 1 个馅饼、1 个蛋糕、1 个红酒和 1 个咖啡' },
     penalties: [
-      { type: 'lose_kitchen', description: '你必须把你厨房和房客所有的餐饮都放回一般供应区' },
+      { type: 'lose_kitchen', clearGuestItems: true, description: '你必须把你厨房和房客所有的餐饮都放回一般供应区' },
     ],
   },
   {

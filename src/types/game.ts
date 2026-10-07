@@ -129,6 +129,8 @@ export interface EmperorEffect {
   type: 'money' | 'score' | 'food' | 'mixed_food' | 'staff_draw_play' | 'free_room' | 'free_room_built' | 'staff_draw_free' | 'score_per_staff' | 'free_staff' | 'remove_guest' | 'remove_built_room' | 'lose_staff' | 'lose_kitchen' | 'advance_emperor'
   amount?: number
   description: string
+  /** lose_kitchen：除厨房外还要清空房客需求区的餐饮（B1 板块） */
+  clearGuestItems?: boolean
 }
 
 export interface EmperorTile {
