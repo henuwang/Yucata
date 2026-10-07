@@ -760,67 +760,93 @@ export interface RoomPlacement {
   col: number
 }
 
-/**
- * 行动区3：建造局 - 强度(区3骰子数)即可准备的房间数，每间费用为所在行的楼层费用
- */
-export function performAreaAction3(state: GameState, placements: RoomPlacement[]): GameState {
-  const n = state.areaDice[3] ?? 0
-  if (n <= 0 || placements.length === 0 || placements.length > n) return state
+interface PlacementResult {
+  player: Player
+  availableRooms: RoomTile[]
+  logs: string[]
+}
 
-  const player = state.players[state.currentPlayerIndex]
+/**
+ * 客房放置的通用结算：颜色匹配、空酒店首间落左下角、之后须与已准备客房相邻、
+ * 每间支付所在楼层费用。校验不过返回 null，整个行动作废（不允许部分成功）。
+ * 行动区3 与 黑市模拟区3 共用同一套规则。
+ */
+function tryPlaceRooms(
+  player: Player,
+  availableRooms: RoomTile[],
+  placements: RoomPlacement[],
+  maxRooms: number,
+): PlacementResult | null {
+  if (placements.length === 0 || placements.length > maxRooms) return null
+
   let slots = player.roomSlots
   let builtRooms = player.builtRooms
-  let availableRooms = state.availableRooms
+  let rooms = availableRooms
   let money = player.resources.money
   let gainedScore = 0
-  const logs = [...state.logs]
+  const logs: string[] = []
 
   for (const placement of placements) {
-    const roomIdx = availableRooms.findIndex(r => r.id === placement.roomId)
-    if (roomIdx === -1 || builtRooms.some(r => r.id === placement.roomId)) return state
-    const room = availableRooms[roomIdx]
+    const roomIdx = rooms.findIndex(r => r.id === placement.roomId)
+    if (roomIdx === -1 || builtRooms.some(r => r.id === placement.roomId)) return null
+    const room = rooms[roomIdx]
 
     const slotIdx = slots.findIndex(s => s.row === placement.row && s.col === placement.col)
-    if (slotIdx === -1) return state
+    if (slotIdx === -1) return null
     const slot = slots[slotIdx]
-    if (slot.roomId !== null || slot.color !== room.color) return state
+    if (slot.roomId !== null || slot.color !== room.color) return null
 
-    // 首间客房必须落在左下角，之后必须与已准备客房相邻
     if (slots.every(s => s.roomId === null)) {
-      if (slot.row !== 0 || slot.col !== 0) return state
+      if (slot.row !== 0 || slot.col !== 0) return null
     } else {
       const hasAdjacent = slots.some(s =>
         s.roomId !== null &&
         Math.abs(s.row - slot.row) + Math.abs(s.col - slot.col) === 1
       )
-      if (!hasAdjacent) return state
+      if (!hasAdjacent) return null
     }
-    if (money < slot.cost) return state
+    if (money < slot.cost) return null
 
     money -= slot.cost
     gainedScore += room.victoryPoints
     slots = slots.map((s, i) => i === slotIdx ? { ...s, roomId: room.id } : s)
     builtRooms = [...builtRooms, { ...room, isBuilt: true }]
-    availableRooms = availableRooms.filter((_, i) => i !== roomIdx)
+    rooms = rooms.filter((_, i) => i !== roomIdx)
     logs.push(`${player.name} 准备客房 ${room.name} 于(${slot.row},${slot.col})，支付楼层费用 ${slot.cost} 元`)
   }
 
-  const players = state.players.map((p, i) =>
-    i === state.currentPlayerIndex ? {
-      ...p,
-      resources: { ...p.resources, money },
-      score: p.score + gainedScore,
+  return {
+    player: {
+      ...player,
+      resources: { ...player.resources, money },
+      score: player.score + gainedScore,
       builtRooms,
       roomSlots: slots,
-    } : p
-  )
+    },
+    availableRooms: rooms,
+    logs,
+  }
+}
+
+/**
+ * 行动区3：建造局 - 强度(区3骰子数)即可准备的房间数，每间费用为所在行的楼层费用
+ */
+export function performAreaAction3(state: GameState, placements: RoomPlacement[]): GameState {
+  const n = state.areaDice[3] ?? 0
+  if (n <= 0) return state
+
+  const player = state.players[state.currentPlayerIndex]
+  const placed = tryPlaceRooms(player, state.availableRooms, placements, n)
+  if (!placed) return state
+
+  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? placed.player : p)
 
   const afterRemove = removeOneFromAreaDice(state, 3)
   const dice = removeOneDieFromArea(state.dice, 3)
 
   return {
-    ...afterRemove, dice, players, availableRooms,
-    logs: [...logs, `${player.name} 执行行动区3: 准备 ${placements.length} 间客房`],
+    ...afterRemove, dice, players, availableRooms: placed.availableRooms,
+    logs: [...state.logs, ...placed.logs, `${player.name} 执行行动区3: 准备 ${placements.length} 间客房`],
   }
 }
 
@@ -870,6 +896,45 @@ export function performAreaAction4(state: GameState, toEmperor: number): GameSta
   }
 }
 
+interface HireResult {
+  player: Player
+  availableStaff: StaffCard[]
+  staff: StaffCard
+  cost: number
+  discount: number
+}
+
+/**
+ * 人力市场通用雇佣：折扣 = 该行动区的骰子数量，费用不足则整个行动作废。
+ * 行动区5 与 黑市模拟区5 共用。
+ */
+function tryHireStaff(
+  player: Player,
+  availableStaff: StaffCard[],
+  staffId: string,
+  discount: number,
+): HireResult | null {
+  const staff = staffCards.find(s => s.id === staffId)
+  if (!staff) return null
+  if (!availableStaff.some(s => s.id === staffId)) return null
+
+  const cost = Math.max(0, staff.cost - discount)
+  if (player.resources.money < cost) return null
+
+  return {
+    player: {
+      ...player,
+      resources: { ...player.resources, money: player.resources.money - cost },
+      score: player.score + staff.victoryPoints,
+      staffCards: [...player.staffCards, staff],
+    },
+    availableStaff: availableStaff.filter(s => s.id !== staffId),
+    staff,
+    cost,
+    discount,
+  }
+}
+
 /**
  * 行动区5：人力市场 - 雇佣员工(折扣)
  */
@@ -877,34 +942,22 @@ export function performAreaAction5(state: GameState, staffId: string): GameState
   const n = state.areaDice[5] ?? 0
   if (n <= 0) return state
 
-  const staff = staffCards.find(s => s.id === staffId)
   const player = state.players[state.currentPlayerIndex]
-  if (!staff) return state
+  const hired = tryHireStaff(player, state.availableStaff, staffId, n)
+  if (!hired) return state
 
-  const discount = n
-  const finalCost = Math.max(0, staff.cost - discount)
-  if (player.resources.money < finalCost) return state
-
-  const newRes = { ...player.resources, money: player.resources.money - finalCost }
-  const players = state.players.map((p, i) =>
-    i === state.currentPlayerIndex ? {
-      ...p, resources: newRes,
-      score: p.score + staff.victoryPoints,
-      staffCards: [...p.staffCards, staff],
-    } : p
-  )
-  const availableStaff = state.availableStaff.filter(s => s.id !== staffId)
+  const players = state.players.map((p, i) => i === state.currentPlayerIndex ? hired.player : p)
 
   const afterRemove = removeOneFromAreaDice(state, 5)
   const dice = removeOneDieFromArea(state.dice, 5)
 
   const result: GameState = {
-    ...afterRemove, dice, players, availableStaff,
-    logs: [...state.logs, `${player.name} 执行行动区5: 雇佣${staff.name}，花费${finalCost}(折扣${discount})`],
+    ...afterRemove, dice, players, availableStaff: hired.availableStaff,
+    logs: [...state.logs, `${player.name} 执行行动区5: 雇佣${hired.staff.name}，花费${hired.cost}(折扣${hired.discount})`],
   }
 
-  if (staff.timing === 'one_time') {
-    return applyOneTimeStaffAbility(result, staff)
+  if (hired.staff.timing === 'one_time') {
+    return applyOneTimeStaffAbility(result, hired.staff)
   }
 
   return result
@@ -912,8 +965,9 @@ export function performAreaAction5(state: GameState, staffId: string): GameState
 
 /**
  * 行动区6：黑市 - 花1元模拟其他区
+ * targetArea=3 时用 placements 准备客房（最多区6骰数间），=5 时用 subAction 指定的员工卡雇佣（折扣=区6骰数）
  */
-export function performAreaAction6(state: GameState, targetArea: number, subAction: string): GameState {
+export function performAreaAction6(state: GameState, targetArea: number, subAction: string, placements?: RoomPlacement[]): GameState {
   const n = state.areaDice[6] ?? 0
   if (n <= 0) return state
 
@@ -957,25 +1011,14 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
       }
     }
   } else if (targetArea === 3) {
-    const room = state.availableRooms.find(r => r.id === subAction)
-    const currentPlayer = baseState.players[state.currentPlayerIndex]
-    if (room && !currentPlayer.builtRooms.some(r => r.id === subAction) && currentPlayer.resources.money >= (room.cost.money ?? 0)) {
-      const cost = room.cost.money ?? 0
-      const newRes = { ...currentPlayer.resources, money: currentPlayer.resources.money - cost }
-      players = baseState.players.map((p, i) =>
-        i === state.currentPlayerIndex ? {
-          ...p, resources: newRes,
-          score: p.score + room.victoryPoints,
-          builtRooms: [...p.builtRooms, { ...room, isBuilt: true }],
-        } : p
-      )
-      return {
-        ...afterRemove, dice, players,
-        availableRooms: state.availableRooms.filter(r => r.id !== subAction),
-        logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市建造${room.name}`],
-      }
+    const placed = tryPlaceRooms(playerWithPayment, state.availableRooms, placements ?? [], n)
+    if (!placed) return state
+    return {
+      ...afterRemove, dice,
+      players: baseState.players.map((p, i) => i === state.currentPlayerIndex ? placed.player : p),
+      availableRooms: placed.availableRooms,
+      logs: [...state.logs, ...placed.logs, `${player.name} 执行行动区6(花1元): 黑市模拟行动区3，准备 ${placements?.length ?? 0} 间客房`],
     }
-    players = baseState.players
   } else if (targetArea === 4) {
     const empAdv = parseInt(subAction) || 0
     const moneyGain = n - empAdv
@@ -984,6 +1027,16 @@ export function performAreaAction6(state: GameState, targetArea: number, subActi
         ? { ...p, emperorTrack: p.emperorTrack + empAdv, resources: { ...p.resources, money: p.resources.money + moneyGain } }
         : p
     )
+  } else if (targetArea === 5) {
+    const hired = tryHireStaff(playerWithPayment, state.availableStaff, subAction, n)
+    if (!hired) return state
+    const result: GameState = {
+      ...afterRemove, dice,
+      players: baseState.players.map((p, i) => i === state.currentPlayerIndex ? hired.player : p),
+      availableStaff: hired.availableStaff,
+      logs: [...state.logs, `${player.name} 执行行动区6(花1元): 黑市雇佣${hired.staff.name}，花费${hired.cost}(折扣${hired.discount})`],
+    }
+    return hired.staff.timing === 'one_time' ? applyOneTimeStaffAbility(result, hired.staff) : result
   } else {
     players = baseState.players
   }
@@ -1023,7 +1076,7 @@ export function performTurnAction(
       break
     case 6: {
       const parts = (subAction || '').split('|')
-      afterAction = performAreaAction6(state, parseInt(parts[0] || '0'), parts[1] || '')
+      afterAction = performAreaAction6(state, parseInt(parts[0] || '0'), parts[1] || '', placements)
       break
     }
     default:

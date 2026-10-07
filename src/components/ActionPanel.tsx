@@ -709,6 +709,7 @@ function ActionAreaTab({
   const [inStaffPicker, setInStaffPicker] = useState(false)
   const [wildArea, setWildArea] = useState(1)
   const [wildSplit, setWildSplit] = useState(0)
+  const [wildPicker, setWildPicker] = useState<'room' | 'staff' | null>(null)
 
   const skipAction = useGameStore(s => s.skipAction)
   const cp = useGameStore(s => s.players[s.currentPlayerIndex])
@@ -729,7 +730,7 @@ function ActionAreaTab({
           const enabled = count > 0 && cp.coveredSlots < 2 && !cp.hasPassedInCycle
           return (
             <div key={area}
-              onClick={enabled ? () => { setSelected(area); setInRoomPicker(false); setInStaffPicker(false); setSplitVal(0); setWildArea(1); setWildSplit(0) } : undefined}
+              onClick={enabled ? () => { setSelected(area); setInRoomPicker(false); setInStaffPicker(false); setSplitVal(0); setWildArea(1); setWildSplit(0); setWildPicker(null) } : undefined}
               style={{
                 background: enabled ? '#2a2a4a' : '#1a1a2e',
                 border: '1px solid ' + (enabled ? cfg.color : '#2a2a4a'),
@@ -839,7 +840,7 @@ function ActionAreaTab({
           </div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
             {[1, 2, 3, 4, 5].map(a => (
-              <div key={a} onClick={() => { setWildArea(a); setWildSplit(0) }} style={{
+              <div key={a} onClick={() => { setWildArea(a); setWildSplit(0); setWildPicker(null) }} style={{
                 padding: '6px 14px', borderRadius: 6,
                 background: wildArea === a ? '#3a3a5a' : '#2a2a4a',
                 border: '1px solid ' + (wildArea === a ? AREA_CONFIG[a].color : '#4a4a6a'),
@@ -860,22 +861,62 @@ function ActionAreaTab({
                 style={{ width: '100%', accentColor: AREA_CONFIG[wildArea].color }} />
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => {
-              const sub = (wildArea === 1 || wildArea === 2 || wildArea === 4)
-                ? wildArea + '|' + wildSplit
-                : wildArea + '|'
-              takeAreaAction(6, sub)
-              setSelected(null)
-            }}
-              style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a7db5', background: '#1a2744', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
-              {'✅ 花1元执行区' + wildArea}
-            </button>
-            <button onClick={() => setSelected(null)}
-              style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a4a6a', background: '#2a2a4a', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
-              取消
-            </button>
-          </div>
+          {wildArea === 3 && (
+            wildPicker === 'room' ? (
+              <RoomPickerInline
+                maxRooms={areaCounts[6] ?? 0}
+                fee={1}
+                onConfirm={placements => { takeAreaAction(6, '3|', placements); setSelected(null); setWildPicker(null) }}
+                onBack={() => setWildPicker(null)}
+              />
+            ) : (
+              <button onClick={() => setWildPicker('room')}
+                style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a7db5', background: '#1a2744', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
+                🏗️ 选择房间建造 (最多 {areaCounts[6] ?? 0} 间)
+              </button>
+            )
+          )}
+
+          {wildArea === 5 && (
+            wildPicker === 'staff' ? (
+              <StaffPickerInline
+                n={areaCounts[6] ?? 0}
+                fee={1}
+                onSelect={staffId => { takeAreaAction(6, '5|' + staffId); setSelected(null); setWildPicker(null) }}
+                onBack={() => setWildPicker(null)}
+              />
+            ) : (
+              <button onClick={() => setWildPicker('staff')}
+                style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a7db5', background: '#1a2744', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
+                👔 选择员工 (折扣 {areaCounts[6] ?? 0})
+              </button>
+            )
+          )}
+
+          {(wildArea === 3 || wildArea === 5) && wildPicker === null && (
+            <div style={{ marginTop: 8 }}>
+              <button onClick={() => setSelected(null)}
+                style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a4a6a', background: '#2a2a4a', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
+                取消
+              </button>
+            </div>
+          )}
+
+          {(wildArea === 1 || wildArea === 2 || wildArea === 4) && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => {
+                takeAreaAction(6, wildArea + '|' + wildSplit)
+                setSelected(null)
+              }}
+                style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a7db5', background: '#1a2744', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
+                {'✅ 花1元执行区' + wildArea}
+              </button>
+              <button onClick={() => setSelected(null)}
+                style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #4a4a6a', background: '#2a2a4a', color: '#e0e0e0', cursor: 'pointer', fontSize: 12 }}>
+                取消
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1348,8 +1389,10 @@ function StaffTab({ availableStaff, player, hireStaffMember }: {
 // Room Picker Inline
 // ════════════════════════════════════════
 
-function RoomPickerInline({ maxRooms, onConfirm, onBack }: {
+function RoomPickerInline({ maxRooms, fee = 0, onConfirm, onBack }: {
   maxRooms: number
+  /** 执行本次行动前就要扣掉的固定费用（黑市的1元），用于剩余资金判断 */
+  fee?: number
   onConfirm: (placements: RoomPlacement[]) => void
   onBack: () => void
 }) {
@@ -1362,7 +1405,7 @@ function RoomPickerInline({ maxRooms, onConfirm, onBack }: {
     player.roomSlots.find((s: any) => s.row === row && s.col === col)
 
   const spent = placements.reduce((sum, p) => sum + (slotAt(p.row, p.col)?.cost ?? 0), 0)
-  const remaining = (player.resources.money ?? 0) - spent
+  const remaining = (player.resources.money ?? 0) - fee - spent
 
   // 把本次已选客房铺到版图上预览，供占位与相邻判断使用
   const previewSlots = player.roomSlots.map((slot: any) => {
@@ -1496,12 +1539,17 @@ function RoomPickerInline({ maxRooms, onConfirm, onBack }: {
 // Staff Picker Inline
 // ════════════════════════════════════════
 
-function StaffPickerInline({ n, onSelect, onBack }: {
-  n: number; onSelect: (staffId: string) => void; onBack: () => void
+function StaffPickerInline({ n, fee = 0, onSelect, onBack }: {
+  n: number
+  /** 执行本次行动前就要扣掉的固定费用（黑市的1元） */
+  fee?: number
+  onSelect: (staffId: string) => void
+  onBack: () => void
 }) {
   const staff = useGameStore(s => s.availableStaff)
   const player = useGameStore(s => s.players[s.currentPlayerIndex])
   const discount = n
+  const payable = player.resources.money - fee
 
   return (
     <div style={{ background: '#0f0f1a', borderRadius: 10, padding: 16, border: '1px solid #3a3a5a', marginTop: 12 }}>
@@ -1521,7 +1569,7 @@ function StaffPickerInline({ n, onSelect, onBack }: {
         )}
         {staff.slice(0, 8).map((s: any) => {
           const finalCost = Math.max(0, s.cost - discount)
-          const affordable = player.resources.money >= finalCost
+          const affordable = payable >= finalCost
           return (
             <div key={s.id} onClick={affordable ? () => onSelect(s.id) : undefined} style={{
               background: '#2a2a4a', border: '1px solid ' + (affordable ? '#4a7db5' : '#3a3a3a'),
